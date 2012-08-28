@@ -64,11 +64,94 @@ class GenomeTreerGenomeLists(wx.Frame):
     def __init__(self, parent, ID, title, pos=wx.DefaultPosition,
                  size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE):
 
+        size = (400, 200) # Default size
+        
         wx.Frame.__init__(self, parent, ID, title, pos, size, style)
         
         panel = wx.Panel(self)
-
+        
+#--------------- Add Genome List Button
+        
+        self.AddGenomeListButtonId = wx.NewId()
+        self.AddGenomeListButton = wx.Button(panel, self.AddGenomeListButtonId, "Create Genome List")
+        
+        self.Bind(wx.EVT_BUTTON, self.CreateGenomeList, id=self.AddGenomeListButtonId)
+        
         panel.Layout()
+        
+    def CreateGenomeList(self, event):
+        addFastaDiag = GenomeTreerCreateGenomeListsDialog(self, -1,  "Create genome list (FASTA)...")
+        addFastaDiag.ShowModal()
+    
+class GenomeTreerCreateGenomeListsDialog(wx.Dialog):        
+    def __init__(self, parent, id = -1, title = None, pos = None, size = None, style = None, name = None):
+        
+        wx.Dialog.__init__(self, parent, id, title, pos, size)
+        
+        panel = wx.Panel(self)
+
+#--------------- Name Text Control
+               
+        self.NameStaticText = wx.StaticText(panel, -1, "Name:")
+        self.NameTextCtrl = wx.TextCtrl(panel, -1)
+        
+        NameSizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        NameSizer.Add(self.NameStaticText, 0, wx.ALL|wx.ALIGN_CENTER, 0)
+        NameSizer.Add(self.NameTextCtrl, 1, wx.ALL|wx.ALIGN_CENTER, 0)
+        
+#--------------- Description Text Control
+        
+        self.DescriptionStaticText = wx.StaticText(panel, -1, "Description:")
+        self.DescriptionTextCtrl = wx.TextCtrl(panel, -1, style=wx.TE_MULTILINE)
+        
+        DescriptionSizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        DescriptionSizer.Add(self.DescriptionStaticText, 0, wx.ALL|wx.ALIGN_CENTER, 0)
+        DescriptionSizer.Add(self.DescriptionTextCtrl, 1,  wx.EXPAND|wx.ALL|wx.ALIGN_CENTER, 0)
+
+#--------------- Privacy Check Control
+
+        self.PrivacyStaticText = wx.StaticText(panel, -1, "Private:")
+        self.PrivacyCheckBox = wx.CheckBox(panel, -1)
+        
+        PrivacySizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        PrivacySizer.Add(self.PrivacyStaticText, 0, wx.ALL|wx.ALIGN_CENTER, 0)
+        PrivacySizer.Add(self.PrivacyCheckBox, 1,  wx.EXPAND|wx.ALL|wx.ALIGN_CENTER, 0)
+
+#--------------- Add Genome Button
+        
+        self.AddListButtonId = wx.NewId()
+        self.AddListButton = wx.Button(panel, self.AddListButtonId, "Create List")
+        
+        self.Bind(wx.EVT_BUTTON, self.CreateGenomeList, id=self.AddListButtonId)
+        
+        
+#--------------- Main Sizer (Layout)
+                
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        sizer.Add(NameSizer, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(DescriptionSizer, 1, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(PrivacySizer, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.AddListButton, 0, wx.ALL|wx.ALIGN_CENTER, 5)
+        panel.SetSizer(sizer)
+        panel.Layout()
+        
+#--------------- Add Genome Event Handler
+
+    def CreateGenomeList(self, event):
+        self.GetParent().AddFastaGenome(self.FilePicker.GetPath(),
+                                        self.NameTextCtrl.GetValue(), 
+                                        self.DescriptionTextCtrl.GetValue(),
+                                        "C", 
+                                        self.sources[self.SourceDropDown.GetSelection()][0],
+                                        "",
+                                        True)
+        
+        self.EndModal(0)
+
 
 class GenomeTreerAddGenomeDialog(wx.Dialog):
     def __init__(self, parent, id = -1, title = None, pos = None, size = None, style = None, name = None):
