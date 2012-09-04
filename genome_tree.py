@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import random
 
 import psycopg2 as pg
 
@@ -53,6 +54,7 @@ def ErrorLog(msg):
     sys.stderr.write(str(msg))
     sys.stderr.flush()
 
+
 def GetTopParent(wxObject):
     parent = wxObject.GetParent()
     while True:
@@ -60,33 +62,147 @@ def GetTopParent(wxObject):
             return parent
         parent = parent.GetParent()
 
+
 class GenomeTreerGenomeLists(wx.Frame):        
     def __init__(self, parent, ID, title, pos=wx.DefaultPosition,
                  size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE):
 
-        size = (400, 200) # Default size
+        size = (600, 600) # Default size
         
         wx.Frame.__init__(self, parent, ID, title, pos, size, style)
         
         panel = wx.Panel(self)
         
-#--------------- Add Genome List Button
+        CreateListSizer = self.CreateGenomeListLayoutInit(panel)
+        EditListSizer = wx.BoxSizer(wx.VERTICAL)
         
+#--------------- Main Sizer (Layout)
+
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(CreateListSizer, 1, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(wx.StaticLine(panel, -1, style=wx.LI_VERTICAL), 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(EditListSizer, 1, wx.EXPAND|wx.ALL, 5)
+        panel.SetSizer(sizer)
+        panel.Layout()
+
+    def CreateGenomeListLayoutInit(self, panel):
+            
+#--------------- Add Genome List Button
+    
         self.AddGenomeListButtonId = wx.NewId()
         self.AddGenomeListButton = wx.Button(panel, self.AddGenomeListButtonId, "Create Genome List")
         
         self.Bind(wx.EVT_BUTTON, self.CreateGenomeList, id=self.AddGenomeListButtonId)
+    
+#--------------- Import List From File
+
+        #self.FilePickerText = wx.StaticText(panel, -1, "File to import:")
+        #self.FilePicker = wx.FilePickerCtrl(panel, -1, style=wx.FLP_DEFAULT_STYLE)
         
-        panel.Layout()
+        #FilePickerSizer = wx.BoxSizer(wx.HORIZONTAL)
         
+        #FilePickerSizer.Add(self.FilePickerText, 0, wx.ALL|wx.ALIGN_CENTER, 0)
+        #FilePickerSizer.Add(self.FilePicker, 1, wx.EXPAND|wx.ALL|wx.ALIGN_CENTER, 0)
+
+#--------------- Description Text Control
+
+        self.GenomeListStaticText = wx.StaticText(panel, -1, "Genome List:")
+        self.GenomeListTextCtrl = wx.TextCtrl(panel, -1, style=wx.TE_MULTILINE)
+        
+        GenomeListSizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        GenomeListSizer.Add(self.GenomeListStaticText, 0, wx.ALL|wx.ALIGN_CENTER, 0)
+        GenomeListSizer.Add(self.GenomeListTextCtrl, 1,  wx.EXPAND|wx.ALL|wx.ALIGN_CENTER, 0)
+
+#--------------- Import Selection Type
+
+        self.TreeIDRadioButton = wx.RadioButton(panel, -1, "ACE Genome Tree IDs")
+        self.DatabaseIDRadioButton = wx.RadioButton(panel, -1, "Database Specific IDs")
+        
+        conn = GetTopParent(self).conn
+        cur = GetTopParent(self).cur
+        
+        query = "SELECT id, name FROM genome_sources"
+        cur.execute(query)
+        self.sources = cur.fetchall()
+        
+        sources_name = [x[1] for x in self.sources]
+        
+        self.SourceText = wx.StaticText(panel, -1, "Database (Genome Source):")
+        self.SourceDropDown = wx.Choice(panel, -1, choices=sources_name)
+        
+
+#--------------- Sizer (Layout)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        #sizer.Add(FilePickerSizer, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(wx.StaticText(panel, -1, "Create A Genome List"), 0, wx.ALIGN_CENTER|wx.ALL, 5)
+        sizer.Add(wx.StaticLine(panel, -1, style=wx.LI_HORIZONTAL), 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(GenomeListSizer, 1, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.TreeIDRadioButton, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.DatabaseIDRadioButton, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.SourceText, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.SourceDropDown, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(wx.StaticLine(panel, -1, style=wx.LI_HORIZONTAL), 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(self.AddGenomeListButton, 0, wx.EXPAND|wx.ALL, 5)
+
+        return sizer
+
     def CreateGenomeList(self, event):
+        genome_ids = self.CheckGenomeList()
+        if len(genome_ids) == 0:
+            ErrorLog("No suitable IDs found to create list.\n")
+            return
         addFastaDiag = GenomeTreerCreateGenomeListsDialog(self, -1,  "Create genome list (FASTA)...")
+        addFastaDiag.StoreGenomeList(genome_ids)
         addFastaDiag.ShowModal()
     
+    def CheckGenomeList(self):
+        
+        conn = GetTopParent(self).conn
+        cur = GetTopParent(self).cur
+        
+        randid = random.randint(0,16**8)
+        temp_table_name = "ids_%x" % (randid,)
+        tree_ids = self.GenomeListTextCtrl.GetValue().split("\n")
+        
+        # Remove empty rows
+        insert_params = [(x,) for x in tree_ids if x]
+    
+        cur.execute("CREATE TEMP TABLE %s (genome_id text)" % (temp_table_name,) )
+        cur.executemany("INSERT INTO %s (genome_id) VALUES (%%s)" % (temp_table_name,), insert_params)
+        conn.commit()
+        
+        if self.DatabaseIDRadioButton.GetValue():
+            source_id = self.sources[self.SourceDropDown.GetSelection()][0]
+            query = "SELECT id FROM genomes WHERE genome_source_id = %%s AND id_at_source IN (SELECT genome_id from %s)" % (temp_table_name,)
+            cur.execute(query, (source_id,))
+            genome_ids = [x[0] for x in cur.fetchall()]
+            
+            query = "SELECT genome_id from %s EXCEPT SELECT id_at_source from genomes WHERE genome_source_id = %%s" % (temp_table_name,)
+            cur.execute(query, (source_id,))
+            missing_ids = [x[0] for x in cur.fetchall()]
+            
+        else:
+            cur.execute("SELECT id FROM genomes WHERE tree_id IN (SELECT genome_id from %s)" % (temp_table_name,))
+            genome_ids = [x[0] for x in cur.fetchall()]
+            
+            cur.execute("SELECT genome_id from %s EXCEPT SELECT tree_id from genomes" % (temp_table_name,))
+            missing_ids = [x[0] for x in cur.fetchall()]
+            
+        if len(missing_ids) > 0:
+            ErrorLog("Warning: The following entered IDs were not found in the " +
+                     "database and have been excluded from the list:\n %s \n" % ("\n".join(missing_ids),))
+
+        return genome_ids
+
+   
 class GenomeTreerCreateGenomeListsDialog(wx.Dialog):        
     def __init__(self, parent, id = -1, title = None, pos = None, size = None, style = None, name = None):
         
         wx.Dialog.__init__(self, parent, id, title, pos, size)
+        
+        self.genome_list = None
         
         panel = wx.Panel(self)
 
@@ -125,8 +241,7 @@ class GenomeTreerCreateGenomeListsDialog(wx.Dialog):
         self.AddListButtonId = wx.NewId()
         self.AddListButton = wx.Button(panel, self.AddListButtonId, "Create List")
         
-        self.Bind(wx.EVT_BUTTON, self.CreateGenomeList, id=self.AddListButtonId)
-        
+        self.Bind(wx.EVT_BUTTON, self.CreateGenomeListEvt, id=self.AddListButtonId)
         
 #--------------- Main Sizer (Layout)
                 
@@ -141,18 +256,31 @@ class GenomeTreerCreateGenomeListsDialog(wx.Dialog):
         
 #--------------- Add Genome Event Handler
 
-    def CreateGenomeList(self, event):
-        self.GetParent().AddFastaGenome(self.FilePicker.GetPath(),
-                                        self.NameTextCtrl.GetValue(), 
-                                        self.DescriptionTextCtrl.GetValue(),
-                                        "C", 
-                                        self.sources[self.SourceDropDown.GetSelection()][0],
-                                        "",
-                                        True)
-        
+    def CreateGenomeListEvt(self, event):
+        self.CreateGenomeList(self.genome_list,
+                                          self.NameTextCtrl.GetValue(), 
+                                          self.DescriptionTextCtrl.GetValue(),
+                                          UserId,
+                                          self.PrivacyCheckBox.GetValue())
         self.EndModal(0)
+    
+    def CreateGenomeList(self, genome_list, name, description, owner_id, private):
+        conn = GetTopParent(self).conn
+        cur = GetTopParent(self).cur
+        
+        query = "INSERT INTO genome_lists (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
+        cur.execute(query, (name, description, owner_id, private))
+        (genome_list_id, ) = cur.fetchone()
+        
+        query = "INSERT INTO genome_list_contents (list_id, genome_id) VALUES (%s, %s)"
+        cur.executemany(query, [(genome_list_id, x) for x in genome_list])
+        
+        conn.commit()
+    
+    def StoreGenomeList(self, genome_list):
+        self.genome_list = genome_list
 
-
+   
 class GenomeTreerAddGenomeDialog(wx.Dialog):
     def __init__(self, parent, id = -1, title = None, pos = None, size = None, style = None, name = None):
         
@@ -251,6 +379,7 @@ class GenomeTreerAddGenomeDialog(wx.Dialog):
         
         self.EndModal(0)
 
+
 class GenomeTreerLoginMenuBar(wx.MenuBar):
     def __init__(self):
         wx.MenuBar.__init__(self)
@@ -260,7 +389,7 @@ class GenomeTreerLoginMenuBar(wx.MenuBar):
         fileMenu.Append(wx.ID_EXIT, "E&xit", "Exit GenomeTreer")
         
         self.Append(fileMenu, "F&ile")
-        
+
 
 class GenomeTreerMenuBar(wx.MenuBar):
     def __init__(self):
@@ -304,7 +433,7 @@ class GenomeTreerMenuBar(wx.MenuBar):
         
         self.Calc16SId = wx.NewId()
         markersMenu.Append(self.Calc16SId, "Calculate 16S...", "Locate 16S markers...")
-               
+
 
 class GenomeTreerForm(wx.Frame):
     def __init__(self, parent, ID, title, pos=wx.DefaultPosition,
@@ -334,7 +463,6 @@ class GenomeTreerForm(wx.Frame):
 #--------------- Login Text Control
 
         self.LoggedInUserText = wx.StaticText(panel, -1, "Logged out")
-        self.UserDivider = wx.StaticLine(panel, -1, style=wx.LI_HORIZONTAL)
 
         self.UsernameStaticText = wx.StaticText(panel, -1, "Username:")
         self.UsernameTextCtrl = wx.TextCtrl(panel, -1, size=(200,-1))
@@ -369,7 +497,7 @@ class GenomeTreerForm(wx.Frame):
         sizer = wx.BoxSizer(wx.VERTICAL)
         
         sizer.Add(self.LoggedInUserText, 0, wx.ALL|wx.ALIGN_RIGHT, 5)
-        sizer.Add(self.UserDivider, 0, wx.EXPAND|wx.ALL, 5)
+        sizer.Add(wx.StaticLine(panel, -1, style=wx.LI_HORIZONTAL), 0, wx.EXPAND|wx.ALL, 5)
         sizer.Add(UsernameSizer, 0, wx.ALL|wx.ALIGN_CENTER, 5)
         sizer.Add(PasswordSizer, 0, wx.ALL|wx.ALIGN_CENTER, 5)
         sizer.Add(self.LoginButton, 0, wx.ALL|wx.ALIGN_CENTER, 5)
@@ -407,7 +535,7 @@ class GenomeTreerForm(wx.Frame):
             sys.stderr.flush()
     
     def ShowGenomeLists(self, event):
-        if self.GenomeListsFrame is None:
+        if not self.GenomeListsFrame:
             self.GenomeListsFrame = GenomeTreerGenomeLists(self, -1, "Genome Lists", size=(100,100))
         self.GenomeListsFrame.Show(True)
 
@@ -431,8 +559,8 @@ class GenomeTreerForm(wx.Frame):
         self.cur = self.conn.cursor()
         
     def ClosePostgresConnection(self):
-        self.conn.close()
         self.cur.close()
+        self.conn.close()
         
     def HideLoginCtrls(self):
         self.UsernameStaticText.Hide()
@@ -540,9 +668,10 @@ class GenomeTreerForm(wx.Frame):
         
         if replace_id_at_source:
             id_at_source = new_id
-                
-        cur.execute("INSERT INTO genomes (tree_id, name, description, owner_id, genome_source_id, id_at_source) "
-            + "VALUES (%s, %s, %s, %s, %s, %s) "
+
+        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data></data>\')'
+        cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
+            + "VALUES (%s, %s, %s, " + initial_xml_string, + "%s, %s, %s) "
             + "RETURNING id" , (new_id, name, desc, UserId, source_id, id_at_source))
         
         row_id = cur.fetchone()[0]
@@ -555,8 +684,8 @@ class GenomeTreerForm(wx.Frame):
         fasta_lobject.close()
         
         conn.commit()
-            
-        
+
+
 class GenomeTreerLauncher:
 
     def MakeAppFrame(self):
@@ -568,7 +697,7 @@ class GenomeTreerLauncher:
         win = self.MakeAppFrame()
         win.Show(True)
         app.MainLoop()
-        
+
 
 ##-------------- Main program
 
