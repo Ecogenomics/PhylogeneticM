@@ -16,9 +16,6 @@ import psycopg2 as pg
 
 UserId = -1
 Username = ''
-
-def Passwordify(password):
-    return crypt.crypt(password, "GT")
     
 def readfa(fp): # this is a generator function
     """https://github.com/lh3/"""
@@ -51,11 +48,6 @@ def readfa(fp): # this is a generator function
             if last: # reach EOF before reading enough quality
                 yield name, seq, None # yield a fasta record instead
                 break
-
-
-def ErrorLog(msg):
-    sys.stderr.write(str(msg))
-    sys.stderr.flush()
 
 
 def GetTopParent(wxObject):
@@ -267,28 +259,6 @@ class GenomeTreerManageUsers(wx.Frame):
                             self.AddPasswordTextCtrl.GetValue(),
                             self.userTypesList[self.AddUserTypeList.GetSelection()][0])
             
-#--------------- Functions
-    
-    def CreateUser(self, username, password, userTypeId):
-        
-        cur = self.cur
-        conn = self.conn
-        
-        cur.execute("SELECT type_id " +
-                    "FROM users " +
-                    "WHERE id = %s", (UserId,))
-        
-        (currentUserTypeId,) = cur.fetchone()
-        
-        if userTypeId <= currentUserTypeId:
-            ErrorLog("Cannot create a user with same or higher level privileges\n")
-            return -1;
-            
-        cur.execute("INSERT into users (username, password, type_id) " +
-                    "VALUES (%s, %s, %s) ", (username, Passwordify(password), userTypeId))
-        
-        conn.commit()
-
 
 class GenomeTreerGenomeLists(wx.Frame):        
     def __init__(self, parent, ID, title, pos=wx.DefaultPosition,
@@ -491,18 +461,6 @@ class GenomeTreerCreateGenomeListsDialog(wx.Dialog):
                                           self.PrivacyCheckBox.GetValue())
         self.EndModal(0)
     
-    def CreateGenomeList(self, genome_list, name, description, owner_id, private):
-        conn = GetTopParent(self).conn
-        cur = GetTopParent(self).cur
-        
-        query = "INSERT INTO genome_lists (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
-        cur.execute(query, (name, description, owner_id, private))
-        (genome_list_id, ) = cur.fetchone()
-        
-        query = "INSERT INTO genome_list_contents (list_id, genome_id) VALUES (%s, %s)"
-        cur.executemany(query, [(genome_list_id, x) for x in genome_list])
-        
-        conn.commit()
     
     def StoreGenomeList(self, genome_list):
         self.genome_list = genome_list
@@ -854,75 +812,6 @@ class GenomeTreerForm(wx.Frame):
     #            if name[-4:] == '.fna':
     #                prefix = name[:-4]
     #                self.AddFastaGenome(os.path.join(root, name), prefix, None, "A", 2, prefix)
-                
-    
-    def ExportGenomicFasta(self, genome_id):
-        conn = self.conn
-        cur = self.cur
-        cur.execute("SELECT genomic_fasta " +
-                    "FROM genomes " +
-                    "WHERE id = %s ", [genome_id])
-        result = cur.fetchone()
-        if result is None:
-            return None
-        (genomic_oid,) = result
-        
-        fasta_lobject = conn.lobject(genomic_oid, 'r')
-        
-        fastafile = tempfile.mkstemp()
-        
-        fasta_lobject.export(fastafile[1])
-        
-        return fastafile[1]
-        
-    def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id, id_at_source, replace_id_at_source=False):
-        conn = self.conn
-        cur = self.cur
-        
-        match = re.search('^[A-Z]$', id_prefix)
-        if not match:
-            raise Exception()
-        
-        try:
-            fasta_fh = open(fasta_file, "rb")
-        except:
-            raise Exception("Cannot open " + fasta_file)
-        fasta_fh.close()
-        
-        global UserId
-        if UserId <= 0:
-            raise Exception("UserId:" + str(UserId))
-        
-        query = "SELECT tree_id FROM genomes WHERE tree_id like %s order by tree_id desc;"
-        cur.execute(query, (id_prefix + '%',))
-        last_id = None
-        for (tree_id,) in cur:
-            last_id = tree_id
-            break
-        if (last_id is None):
-            new_id = id_prefix + "00000001"
-        else:
-            new_id = id_prefix + "%08.i" % (int(last_id[1:]) + 1)
-        
-        if replace_id_at_source:
-            id_at_source = new_id
-
-        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data></data>\')'
-        cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
-            + "VALUES (%s, %s, %s, " + initial_xml_string + ", %s, %s, %s) "
-            + "RETURNING id" , (new_id, name, desc, UserId, source_id, id_at_source))
-        
-        row_id = cur.fetchone()[0]
-        
-        fasta_lobject = conn.lobject(0, 'w', 0, fasta_file)
-        
-        cur.execute("UPDATE genomes SET genomic_fasta = %s WHERE id = %s",
-                    (fasta_lobject.oid, row_id))
-        
-        fasta_lobject.close()
-        
-        conn.commit()
-
 
 class GenomeTreerLauncher:
 
