@@ -1,15 +1,14 @@
 import sys
 import os
 import re
-import crypt
 import subprocess
 import tempfile
 import time
 import random
-import bcrypt
 import string
 
 import psycopg2 as pg
+import bcrypt
 
 #---- User Class
 
@@ -35,6 +34,7 @@ class GenomeDatabase(object):
         self.conn = None
         self.currentUser = None
         self.lastErrorMessage = None
+        self.phylosift_bin = "/srv/whitlam/bio/apps/sw/phylosift/genome_tree_phylosift/bin/phylosift"
 
 #-------- General Functions
     
@@ -182,10 +182,7 @@ class GenomeDatabase(object):
         
         return True
     
-    def CheckListAgainstPostgres(self, queryList, table, column):
-
-    
-      def CheckGenomeList(self):
+    def CheckGenomeList(self):
         
         conn = GetTopParent(self).conn
         cur = GetTopParent(self).cur
@@ -220,6 +217,150 @@ class GenomeDatabase(object):
 
         return genome_ids
 
+#-------- Genome Management
+    
+    def CheckGenomeExists(self, genome_id):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        if cur.fetchone():
+            return True
+        else:
+            return False
+        
+    def GetGenomeOwner(self, genome_id):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT owner_id " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Unable to find genome_id: " + genome_id )
+            return None
+        
+        (owner_id,) = result
+        return owner_id
+        
+        
+    def GetGenomeId(self, tree_id=None, source_name=None, id_at_source=None):
+        
+        cur = self.conn.cursor()
+        
+        return_id = None
+        
+        if tree_id and (source_name or id_at_source):
+            self.ReportError("Cannot specify both a tree id and source specific params")
+            return False
+        
+        if tree_id is not None:
+            cur.execute("SELECT id " +
+                        "FROM genomes " +
+                        "WHERE tree_id = %s ", [tree_id])
+            
+            result = cur.fetchone()
+            if result is None:
+                self.ReportError("Unable to find tree id: " + tree_id)
+                return None
+            
+            (genome_id, ) = result
+            
+            return genome_id
+            
+        if (source_name is not None) or (source_name is not None):
+            if (source_name is not None) and (source_name is not None):
+                
+                # Check that the source actually exists
+                cur.execute("SELECT id " +
+                            "FROM genome_sources " +
+                            "WHERE name = %s ", [source_name])
+                result = cur.fetchone()
+                
+                if not result:
+                    self.ReportError("No genome source found named '%s'" % (source_name,))
+                    return None
+                
+                (genome_source_id,) = result
+                
+                # Find the genome
+                cur.execute("SELECT id " +
+                            "FROM genomes,  " +
+                            "WHERE id_at_source = %s " +
+                            "AND source_id = %s", [id_at_source, genome_source_id])
+            
+                result = cur.fetchone()
+                if result is None:
+                    self.ReportError("Unable to find tree id: " + tree_id)
+                    return None
+                
+                (genome_id, ) = result
+                
+                return genome_id
+
+    def GetGenomeSources(self):
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id, name FROM genome_sources")
+        
+        return cur.fetchall()
+    
+    def FindPhylosiftMarkers(self, phylosift_bin, fasta_file):
+        result_dir = tempfile.mkdtemp()
+        return_dict = dict()
+        subprocess.call([phylosift_bin, "search", "--besthit",
+                                        "--output="+ result_dir, fasta_file])
+        subprocess.call([phylosift_bin, "align", "--besthit",
+                                        "--output="+ result_dir, fasta_file])
+        for (root, dirs, files) in os.walk(result_dir + "/alignDir"):
+            for filename in files:
+                match = re.search('^(PMPROK\d*).fasta$', filename)
+                if match:
+                    prefix = match.group(1)
+                    marker_fasta = open(os.path.join(root, filename), "rb")
+                    for (name, seq, qual) in readfq(marker_fasta):
+                        if not len(seq):
+                            break
+                        if (seq.count('-') / float(len(seq))) > 0.5: # Limit to less than half gaps
+                            break
+                        return_dict[prefix] = seq
+                        break # Only want best hit.
+                    marker_fasta.close()
+        subprocess.call(["rm", "-rf", result_dir])
+        return return_dict
+
+    def CalculateMarkersForGenome(self, genome_id):
+        
+        cur = self.conn.cursor()
+
+        if not self.CheckGenomeExists(genome_id):
+            self.ReportError("Unable to find genome_id: " + genome_id)
+            return False
+        
+        destfile = tempfile.mkstemp()[1]
+        
+        self.ExportGenomicFasta(genome_id, destfile)
+        
+        markers = self.FindPhylosiftMarkers(self.phylosift_bin, destfile)
+        
+        for (marker_id, seq) in markers.items():
+            cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna, sequence) " + 
+                        "(SELECT %s, markers.id, False, %s " +
+                        "        FROM markers, databases " +
+                        "        WHERE database_specific_id = %s " +
+                        "        AND database_id = databases.id " +
+                        "        AND databases.name = 'Phylosift')" ,
+                        (genome_id, seq, marker_id))
+        
+        self.conn.commit()
+        
+        os.unlink(destfile)
+        
 #-------- Fasta File Management
 
     def ExportGenomicFasta(self, genome_id, destfile=None):
@@ -235,16 +376,16 @@ class GenomeDatabase(object):
             return None
         (genomic_oid,) = result
         
-        fasta_lobject = conn.lobject(genomic_oid, 'r')
+        fasta_lobject = self.conn.lobject(genomic_oid, 'r')
         
         if destfile is None:
-            destfile = tempfile.mkstemp()[1]
+            return fasta_lobject.read()
+        else:
+            fasta_lobject.export(destfile)
         
-        fasta_lobject.export(destfile)
-        
-        return destfile
+        return True
     
-    def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id, id_at_source=None):
+    def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id=None, id_at_source=None):
         
         cur = self.conn.cursor()
         
@@ -275,13 +416,25 @@ class GenomeDatabase(object):
         else:
             new_id = id_prefix + "%08.i" % (int(last_id[1:]) + 1)
         
+        if source_id is None:
+            cur.execute("SELECT id FROM genome_sources WHERE name = 'user'")
+            result = cur.fetchone()
+            if not result:
+                self.ReportError("Could not find 'user' genome source. Possible database corruption.")
+                return False
+            (source_id,) = result
+            if id_at_source is not None:
+                self.ReportError("You cannot specify an ID at an unspecified genome source.")
+                return False
+        
         if id_at_source is None:
             id_at_source = new_id
 
         initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data></data>\')'
         cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
             + "VALUES (%s, %s, %s, " + initial_xml_string + ", %s, %s, %s) "
-            + "RETURNING id" , (new_id, name, desc, UserId, source_id, id_at_source))
+            + "RETURNING id" , (new_id, name, desc, self.currentUser.getUserId(),
+                                source_id, id_at_source))
         
         row_id = cur.fetchone()[0]
         
@@ -293,4 +446,38 @@ class GenomeDatabase(object):
         fasta_lobject.close()
         
         self.conn.commit()
+    
+#----- Other Functions
+
+def readfq(fp): # this is a generator function
+    """https://github.com/lh3/"""
+    last = None # this is a buffer keeping the last unprocessed line
+    while True: # mimic closure; is it a bad idea?
+        if not last: # the first record or a record following a fastq
+            for l in fp: # search for the start of the next record
+                if l[0] in '>@': # fasta/q header line
+                    last = l[:-1] # save this line
+                    break
+        if not last: break
+        name, seqs, last = last[1:].split()[0], [], None
+        for l in fp: # read the sequence
+            if l[0] in '@+>':
+                last = l[:-1]
+                break
+            seqs.append(l[:-1])
+        if not last or last[0] != '+': # this is a fasta record
+            yield name, ''.join(seqs), None # yield a fasta record
+            if not last: break
+        else: # this is a fastq record
+            seq, leng, seqs = ''.join(seqs), 0, []
+            for l in fp: # read the quality
+                seqs.append(l[:-1])
+                leng += len(l) - 1
+                if leng >= len(seq): # have read enough quality
+                    last = None
+                    yield name, seq, ''.join(seqs); # yield a fastq record
+                    break
+            if last: # reach EOF before reading enough quality
+                yield name, seq, None # yield a fasta record instead
+                break
     

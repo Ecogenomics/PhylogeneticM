@@ -25,17 +25,55 @@ def CreateUser(GenomeDatabase, args):
     print "User Created!\n"
     return True
         
+def ModifyUser(GenomeDatabase, args):
+    pass
 
+def ShowUser(GenomeDatabase, args):
+    pass
+    
+def DeleteUser(GenomeDatabase, args):
+    pass
+
+def AddFastaGenome(GenomeDatabase, args):
+    GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, "C")
+    
+def ShowGenome(GenomeDatabase, args):
+    if args.tree_id:
+        genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
+    else:
+        genome_id = GenomeDatabase.GetGenomeId(args.source, args.id_at_source)
+    
+    if not genome_id:
+        ErrorReport("Genome not found.\n")
+        
+    if args.output_fasta is None:
+        print GenomeDatabase.ExportGenomicFasta(genome_id)
+    elif args.output_fasta:
+        print GenomeDatabase.ExportGenomicFasta(genome_id, args.output_fasta)
+    else:
+        pass # Genome info   
+        
+def ShowGenomeSources(GenomeDatabase, args):
+    print "Current genome sources:"
+    for (source_id, name) in GenomeDatabase.GetGenomeSources():
+        print "    " + name
+        
+def CalculateMarkers(GenomeDatabase, args):
+    genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
+    GenomeDatabase.CalculateMarkersForGenome(genome_id)
     
 if __name__ == '__main__':
     
     # create the top-level parser
     parser = argparse.ArgumentParser(prog='genome_tree_cli.py')
-    parser.add_argument('-u', dest='login_username', help='Username to log into the database')
+    parser.add_argument('-u', dest='login_username', required=True,
+                        help='Username to log into the database')
     
     subparsers = parser.add_subparsers(help='Sub-Command Help', dest='subparser_name')
     
 # -- User management subparsers
+
+# -------- Create users
     
     parser_createuser = subparsers.add_parser('CreateUser',
                                               help='Create user help')
@@ -45,38 +83,91 @@ if __name__ == '__main__':
                                    required=True, help='User type')
     parser_createuser.set_defaults(func=CreateUser)
     
+# -------- Modify users
+    
     parser_modifyuser = subparsers.add_parser('ModifyUser', help='Modify user help')
     parser_modifyuser.add_argument('--user', dest = 'username',
                                    required=True, help='Username of the user')
     parser_modifyuser.add_argument('--type', dest = 'type', help='User type')
-    parser_modifyuser.add_argument('--password', dest = 'password',
-                                   action='store_true', help='User type')
-    parser_modifyuser.set_defaults(func=CreateUser)
+    parser_modifyuser.add_argument('--password', dest = 'password', help='User type')
+    parser_modifyuser.set_defaults(func=ModifyUser)
+    
+# -------- Show users
     
     parser_showuser = subparsers.add_parser('ShowUser', help='Show user help')
     parser_showuser.add_argument('--user', dest = 'username',
                                 required=True, help='Username of the user')
+    parser_showuser.set_defaults(func=ShowUser)
+    
+# -------- Delete users
+    
+    parser_deleteuser = subparsers.add_parser('DeleteUser', help='Delete user help')
+    parser_deleteuser.add_argument('--user', dest = 'username',
+                                   required=True, help='Username of the user to delete')
+    parser_deleteuser.add_argument('--force', dest = 'force', action='store_true',
+                                   help='Do not prompt for confirmation')
+    parser_deleteuser.set_defaults(func=DeleteUser)
+       
+# -------- Genome management subparsers
+    
+    parser_addfastagenome = subparsers.add_parser('AddFastaGenome',
+                                    help='Add a genome to the tree from a Fasta file')
+    parser_addfastagenome.add_argument('--file', dest = 'filename',
+                                       required=True, help='FASTA file to add')
+    parser_addfastagenome.add_argument('--name', dest = 'name',
+                                       required=True, help='Name of the genome')
+    parser_addfastagenome.add_argument('--description', dest = 'description',
+                                       required=True, help='Brief description of the genome')
+    parser_addfastagenome.set_defaults(func=AddFastaGenome)
+    
+    
+    parser_showgenome = subparsers.add_parser('ShowGenome',
+                                    help='Add a genome to the tree from a Fasta file')
+    parser_showgenome.add_argument('--tree_id', dest = 'tree_id',
+                                       help='Tree ID')
+    parser_showgenome.add_argument('--source', dest = 'source',
+                                       help='Name of the genome')
+    parser_showgenome.add_argument('--id', dest = 'id_at_source',
+                                       help='Brief description of the genome')
+    parser_showgenome.add_argument('--fasta', dest = 'output_fasta', nargs='?',
+                                   default = None, help='Output the genome to a FASTA file')
+    parser_showgenome.set_defaults(func=ShowGenome)
+    
+    
+    parser_showgenomesources = subparsers.add_parser('ShowGenomeSources',
+                                help='Show the sources of the genomes')
+    parser_showgenomesources.set_defaults(func=ShowGenomeSources)
+    
+# -------- Marker management subparsers
 
-# -- Add Genome Subparsers
+    parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
+                                help='Calculate markers')
+    parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
+                                         required=True,  help='Tree ID')
+    parser_calculatemarkers.set_defaults(func=CalculateMarkers)
 
 
-    # parse some argument lists
+    # Parse command line arguments
     args =  parser.parse_args()
     
+    # Do non-standard parser checks
+    
+    
+    
+    # Initialise the backend
     GenomeDatabase = backend.GenomeDatabase()
     GenomeDatabase.MakePostgresConnection()
     
+    # Login
     User = GenomeDatabase.UserLogin(args.login_username,
                                     getpass.getpass("Enter your password (%s):" %
-                                                    (args.login_username,) ))
-    
-    print User
-    
+                                                    (args.login_username,) ))    
     if not User:
         ErrorReport("Database login failed. The following error was reported:\n" +
                     "\t" + GenomeDatabase.lastErrorMessage)
         sys.exit(-1)
 
+    # Execute command line 
     args.func(GenomeDatabase, args)
 
 
