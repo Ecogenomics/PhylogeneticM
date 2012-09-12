@@ -97,6 +97,36 @@ class GenomeDatabase(object):
 
 #-------- User Management
 
+    def CheckForCurrentUserHigherPrivileges(self, user_id):
+        """
+        Checks if the current user has higher privileges that the specified user_id.
+        """
+        cur = self.conn.cursor()
+        cur.execute("SELECT type_id FROM users WHERE id = %s", (user_id,))
+        result = cur.fetchone()
+        
+        if not result:
+            self.ReportError("User not found.")
+            return None
+        
+        (type_id,) = result
+        if self.currentUser.getTypeId() < type_id:
+            return True
+        else:
+            return False
+    
+    def GetUserIdFromUsername(self, username):
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+        result = cur.fetchone()
+        
+        if not result:
+            self.ReportError("Username not found.")
+            return None
+        
+        (user_id,) = result
+        return user_id
+
     def CreateUser(self, username, password, userTypeId):
         
         if not self.IsPostgresConnectionActive():
@@ -106,6 +136,7 @@ class GenomeDatabase(object):
         if not self.currentUser:
             self.ReportError("You need to be logged in to create a user")
             return False
+        
         
         if userTypeId <= self.currentUser.getTypeId():
             self.ReportError("Cannot create a user with same or higher level privileges")
@@ -130,12 +161,20 @@ class GenomeDatabase(object):
             self.ReportError("You need to be logged in to modify a user.")
             return False
         
-        if userTypeId <= self.currentUser.getTypeId():
+        if not self.CheckForCurrentUserHigherPrivileges(user_id):
+            if user_id != self.currentUser.getUserId():
+                self.ReportError("Unable to modify user. User may not exist or you may have insufficient privileges.")        
+        
+        if userTypeId and int(userTypeId) <= self.currentUser.getTypeId():
             self.ReportError("Cannot change a user to have the same or higher level privileges as you.")
             return False
         
+        if userTypeId and user_id == self.currentUser.getUserId():
+            self.ReportError("You cannot modify your own privileges.")
+            return False
+        
         cur = self.conn.cursor()
-        query = "SELECT user_id FROM users WHERE if = %s"
+        query = "SELECT id FROM users WHERE id = %s"
         cur.execute(query, [user_id])
         
         result = cur.fetchone()
@@ -150,10 +189,10 @@ class GenomeDatabase(object):
                 return False
             else:
                 cur.execute("UPDATE users SET password = %s WHERE id = %s", 
-                    (Passwordify(password), user_id))
+                    (GenerateHashedPassword(password), user_id))
         
         if userTypeId is not None:
-            cur.execute("UPDATE users SET userTypeId = %s WHERE id = %s", 
+            cur.execute("UPDATE users SET type_id = %s WHERE id = %s", 
                     (userTypeId,  user_id))
         
         self.conn.commit()
@@ -166,10 +205,6 @@ class GenomeDatabase(object):
     def CreateGenomeList(self, genome_list, name, description, owner_id, private):
         
         cur = self.conn.cursor()
-        
-        randid = random.randint(0,16**8)
-        temp_table_name = "ids_%x" % (randid,)
-        tree_ids = self.GenomeListTextCtrl.GetValue().split("\n")
         
         query = "INSERT INTO genome_lists (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
         cur.execute(query, (name, description, owner_id, private))
@@ -231,7 +266,7 @@ class GenomeDatabase(object):
             return True
         else:
             return False
-        
+
     def GetGenomeOwner(self, genome_id):
         
         cur = self.conn.cursor()
@@ -247,19 +282,17 @@ class GenomeDatabase(object):
         
         (owner_id,) = result
         return owner_id
-        
-        
-    def GetGenomeId(self, tree_id=None, source_name=None, id_at_source=None):
-        
+
+    def GetGenomeId(self, id_at_source, source_id):
+        """
+        If source is None, assume tree_ids.
+        """
         cur = self.conn.cursor()
         
         return_id = None
         
-        if tree_id and (source_name or id_at_source):
-            self.ReportError("Cannot specify both a tree id and source specific params")
-            return False
+        if source_id is None:
         
-        if tree_id is not None:
             cur.execute("SELECT id " +
                         "FROM genomes " +
                         "WHERE tree_id = %s ", [tree_id])
@@ -273,43 +306,22 @@ class GenomeDatabase(object):
             
             return genome_id
             
-        if (source_name is not None) or (source_name is not None):
-            if (source_name is not None) and (source_name is not None):
-                
-                # Check that the source actually exists
-                cur.execute("SELECT id " +
-                            "FROM genome_sources " +
-                            "WHERE name = %s ", [source_name])
-                result = cur.fetchone()
-                
-                if not result:
-                    self.ReportError("No genome source found named '%s'" % (source_name,))
-                    return None
-                
-                (genome_source_id,) = result
-                
-                # Find the genome
-                cur.execute("SELECT id " +
-                            "FROM genomes,  " +
-                            "WHERE id_at_source = %s " +
-                            "AND source_id = %s", [id_at_source, genome_source_id])
-            
-                result = cur.fetchone()
-                if result is None:
-                    self.ReportError("Unable to find tree id: " + tree_id)
-                    return None
-                
-                (genome_id, ) = result
-                
-                return genome_id
+        else:
 
-    def GetGenomeSources(self):
-        cur = self.conn.cursor()
+            cur.execute("SELECT id " +
+                        "FROM genomes  " +
+                        "WHERE id_at_source = %s " +
+                        "AND genome_source_id = %s", [id_at_source, source_id])
         
-        cur.execute("SELECT id, name FROM genome_sources")
-        
-        return cur.fetchall()
-    
+            result = cur.fetchone()
+            if result is None:
+                self.ReportError("Unable to find genome : " + source_id)
+                return None
+            
+            (genome_id, ) = result
+            
+            return genome_id
+
     def FindPhylosiftMarkers(self, phylosift_bin, fasta_file):
         result_dir = tempfile.mkdtemp()
         return_dict = dict()
@@ -360,7 +372,30 @@ class GenomeDatabase(object):
         self.conn.commit()
         
         os.unlink(destfile)
+   
+#-------- Genome Sources Management
+
+    def GetGenomeSources(self):
+        cur = self.conn.cursor()
         
+        cur.execute("SELECT id, name FROM genome_sources")
+        
+        return cur.fetchall()
+    
+    def GetGenomeSourceIdFromName(self, source_name):
+        
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM genome_sources where name = %s", (source_name,))
+        
+        result = cur.fetchone()
+        if result:
+            (source_id,) = result
+            return source_id
+        else:
+            self.ReportError("Unable to find source: " + source_name)
+        return None
+    
+     
 #-------- Fasta File Management
 
     def ExportGenomicFasta(self, genome_id, destfile=None):
