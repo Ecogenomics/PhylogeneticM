@@ -252,6 +252,27 @@ class GenomeDatabase(object):
 
         return genome_ids
 
+    def GetGenomeIdListFromGenomeListId(self, genome_list_id):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id " +
+                    "FROM genome_lists " +
+                    "WHERE id = %s", (genome_list_id))
+        
+        if not cur.fetchone():
+            self.ReportError("No genome list with id: " + genome_list_id)
+            return None
+        
+        cur.execute("SELECT genome_id " +
+                    "FROM genome_list_contents " +
+                    "WHERE list_id = %s", (genome_list_id))
+        
+        result = cur.fetchall()
+        
+        return [genome_id for (genome_id,) in result]
+            
+
 #-------- Genome Management
     
     def CheckGenomeExists(self, genome_id):
@@ -283,7 +304,7 @@ class GenomeDatabase(object):
         (owner_id,) = result
         return owner_id
 
-    def GetGenomeId(self, id_at_source, source_id):
+    def GetGenomeId(self, id_at_source, source_id=None):
         """
         If source is None, assume tree_ids.
         """
@@ -295,11 +316,11 @@ class GenomeDatabase(object):
         
             cur.execute("SELECT id " +
                         "FROM genomes " +
-                        "WHERE tree_id = %s ", [tree_id])
+                        "WHERE tree_id = %s ", [id_at_source])
             
             result = cur.fetchone()
             if result is None:
-                self.ReportError("Unable to find tree id: " + tree_id)
+                self.ReportError("Unable to find tree id: " + id_at_source)
                 return None
             
             (genome_id, ) = result
@@ -394,8 +415,69 @@ class GenomeDatabase(object):
         else:
             self.ReportError("Unable to find source: " + source_name)
         return None
+
+    def make_tree_data(self, list_of_genome_ids, prefix):    
+        """
+        TODO - This function is ugly, it needs to be cleaned up.
+        """
+        cur = self.conn.cursor()
+        
+        # For all of the markers, get the expected marker size.
+        aligned_markers = dict()
+        cur.execute("SELECT markers.id, database_specific_id, size " +
+                    "FROM markers, databases " +
+                    "WHERE database_id = databases.id " +
+                    "AND databases.name = 'Phylosift'"
+                    "ORDER by database_specific_id")
+        
+        chosen_markers = list()
+        for marker_id, phylosift_id, size in cur:
+            chosen_markers.append((marker_id, phylosift_id, size))
     
-     
+        cur.execute("SELECT tree_id, genome_id, marker_id, sequence, name "+
+                    "FROM aligned_markers, genomes " +
+                    "WHERE genomes.id = genome_id " +
+                    "AND dna is false")
+        
+        for tree_id, genome_id, marker_id, sequence, name in cur:
+            if (genome_id in list_of_genome_ids):
+                if genome_id not in aligned_markers:
+                    aligned_markers[genome_id] = dict()
+                    aligned_markers[genome_id]['markers']    = dict()
+                    aligned_markers[genome_id]['name']  = name
+                    aligned_markers[genome_id]['tree_id']  = tree_id
+                aligned_markers[genome_id]['markers'][marker_id] = sequence
+                #For all the fields, replace None type with "".
+                aligned_markers[genome_id] = dict(map((lambda (k, v): (k, "") if v is None else (k, v)),
+                                                    aligned_markers[genome_id].items()))
+    
+        gg_fh = open(prefix + ".greengenes", 'wb')
+        fasta_fh = open(prefix + ".fasta", 'wb')
+        for genome_id in aligned_markers.keys():                    
+            aligned_seq = '';
+            for marker_id, phylosift_id, size in chosen_markers:
+                if marker_id in aligned_markers[genome_id]['markers']:
+                    aligned_seq += aligned_markers[genome_id]['markers'][marker_id]
+                else:
+                    aligned_seq += size * '-'
+            fasta_outstr = ">%s\n%s\n" % (aligned_markers[genome_id]['tree_id'],
+                                          aligned_seq) 
+            gg_list = ["BEGIN",
+                       "db_name=%s" % aligned_markers[genome_id]['tree_id'],
+                       "organism=%s" % aligned_markers[genome_id]['name'],
+                       "prokMSA_id=%s" % (aligned_markers[genome_id]['tree_id']),
+                       "warning=",
+                       "aligned_seq=%s" % (aligned_seq),
+                       "END"]
+            
+            gg_outstr = "\n".join(gg_list) + "\n\n";
+            
+            gg_fh.write(gg_outstr);
+            fasta_fh.write(fasta_outstr)
+        
+        gg_fh.close()
+        fasta_fh.close()
+        
 #-------- Fasta File Management
 
     def ExportGenomicFasta(self, genome_id, destfile=None):

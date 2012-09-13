@@ -107,7 +107,14 @@ def CreateGenomeList(GenomeDatabase, args):
     GenomeDatabase.CreateGenomeList(genome_list, args.name, args.description,
                                     GenomeDatabase.currentUser.getUserId(),
                                     not args.public)
+
+def CreateTree(GenomeDatabase, args):
     
+    genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(args.list_id)
+    
+    if len(genome_list) > 0:
+        GenomeDatabase.make_tree_data(genome_list, args.prefix)
+
 def CalculateMarkers(GenomeDatabase, args):
     genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
     GenomeDatabase.CalculateMarkersForGenome(genome_id)
@@ -203,6 +210,15 @@ if __name__ == '__main__':
     parser_creategenomelist.add_argument('--public', dest = 'public', default=False,
                                        action='store_true', help='Make the list visible to all users.')
     parser_creategenomelist.set_defaults(func=CreateGenomeList)
+    
+    parser_generatetreedata = subparsers.add_parser('CreateTree',
+                                        help='Create a genome tree')
+    parser_generatetreedata.add_argument('--prefix', dest = 'prefix',
+                                       required=True, help='Prefix of outputfiles')
+    parser_generatetreedata.add_argument('--genome_list_id', dest = 'list_id',
+                                       required=True, help='Source of the accessions listed in the file')
+    parser_generatetreedata.set_defaults(func=CreateTree)
+    
     
 # -------- Marker management subparsers
 
