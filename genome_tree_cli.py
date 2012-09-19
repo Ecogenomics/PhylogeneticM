@@ -61,7 +61,9 @@ def DeleteUser(GenomeDatabase, args):
     pass
 
 def AddFastaGenome(GenomeDatabase, args):
-    GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, "C")
+    genome_id = GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, "C")
+    if genome_id is not None:
+        GenomeDatabase.CalculateMarkersForGenome(genome_id)
     
 def ShowGenome(GenomeDatabase, args):
     if args.tree_id:
@@ -113,7 +115,18 @@ def CreateTree(GenomeDatabase, args):
     genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(args.list_id)
     
     if len(genome_list) > 0:
-        GenomeDatabase.make_tree_data(genome_list, args.prefix)
+        GenomeDatabase.MakeTreeData(genome_list, args.prefix, args.profile)
+
+def ShowAllGenomeLists(GenomeDatabase, args):
+    
+    if args.self_owned:
+        genome_lists = GenomeDatabase.GetGenomeLists(GenomeDatabase.currentUser.getUserId())
+    else:
+        genome_lists = GenomeDatabase.GetGenomeLists()
+    
+    print "ID\tName\tOwner\tDesc\n"
+    for (list_id, name, description, user) in genome_lists:
+        print "\t".join((str(list_id), name, user, description)),"\n"
 
 def CalculateMarkers(GenomeDatabase, args):
     genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
@@ -202,7 +215,7 @@ if __name__ == '__main__':
     parser_creategenomelist.add_argument('--file', dest = 'filename',
                                        required=True, help='File containing list of accessions')
     parser_creategenomelist.add_argument('--source', dest = 'source',
-                                       required=True, help='Source of the accessions listed in the file')
+                                       help='Source of the accessions listed in the file')
     parser_creategenomelist.add_argument('--name', dest = 'name',
                                        required=True, help='Name of the genome list')
     parser_creategenomelist.add_argument('--description', dest = 'description',
@@ -211,22 +224,33 @@ if __name__ == '__main__':
                                        action='store_true', help='Make the list visible to all users.')
     parser_creategenomelist.set_defaults(func=CreateGenomeList)
     
+# -------- Show All Genome Lists
+
+    parser_showallgenomelists = subparsers.add_parser('ShowAllGenomeLists',
+                                        help='Create a genome list from a list of accessions')
+    parser_showallgenomelists.add_argument('--owned', dest = 'self_owned',  default=False,
+                                        action='store_true', help='Only show genome lists owned by you.')
+    parser_showallgenomelists.set_defaults(func=ShowAllGenomeLists)
+
+# -------- Generate Tree Data
+    
     parser_generatetreedata = subparsers.add_parser('CreateTree',
                                         help='Create a genome tree')
     parser_generatetreedata.add_argument('--prefix', dest = 'prefix',
                                        required=True, help='Prefix of outputfiles')
     parser_generatetreedata.add_argument('--genome_list_id', dest = 'list_id',
                                        required=True, help='Source of the accessions listed in the file')
+    parser_generatetreedata.add_argument('--profile', dest = 'profile',
+                                       help='Profile to use to build the tree (default: Phylosift_PMPROK)')
     parser_generatetreedata.set_defaults(func=CreateTree)
-    
-    
+     
 # -------- Marker management subparsers
 
-    parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
-                                help='Calculate markers')
-    parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
-                                         required=True,  help='Tree ID')
-    parser_calculatemarkers.set_defaults(func=CalculateMarkers)
+    #parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
+    #                            help='Calculate markers')
+    #parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
+    #                                     required=True,  help='Tree ID')
+    #parser_calculatemarkers.set_defaults(func=CalculateMarkers)
 
 
     # Parse command line arguments

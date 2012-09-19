@@ -9,6 +9,7 @@ import string
 
 import psycopg2 as pg
 import bcrypt
+import xml.etree.ElementTree as et
 
 #---- User Class
 
@@ -44,7 +45,7 @@ class GenomeDatabase(object):
 #-------- Database Connection Management
 
     def MakePostgresConnection(self):
-        self.conn = pg.connect("dbname=genome_tree host=/tmp/")
+        self.conn = pg.connect("dbname=genome_tree user=uqaskars host=/tmp/")
         
     def ClosePostgresConnection(self):
         self.conn.close()
@@ -258,20 +259,46 @@ class GenomeDatabase(object):
         
         cur.execute("SELECT id " +
                     "FROM genome_lists " +
-                    "WHERE id = %s", (genome_list_id))
+                    "WHERE id = %s", (genome_list_id,))
         
         if not cur.fetchone():
-            self.ReportError("No genome list with id: " + genome_list_id)
+            self.ReportError("No genome list with id: " + str(genome_list_id))
             return None
         
         cur.execute("SELECT genome_id " +
                     "FROM genome_list_contents " +
-                    "WHERE list_id = %s", (genome_list_id))
+                    "WHERE list_id = %s", (genome_list_id,))
         
         result = cur.fetchall()
         
         return [genome_id for (genome_id,) in result]
             
+    def GetGenomeLists(self, owner_id=None):
+        """
+        Get all genomes list owned by owner_id which the current user is allowed
+        to see. If owner_id is None, return all visible genome lists for the
+        current user.
+        """
+        cur = self.conn.cursor()
+
+        if owner_id is None:
+            cur.execute("SELECT list.id, list.name, list.description, username " +
+                        "FROM genome_lists as list, users " +
+                        "WHERE list.owner_id = users.id " +
+                        "AND (list.private = False " +
+                             "OR users.type_id > %s " +
+                             "OR list.owner_id = %s) " +
+                        "ORDER by list.id ", (self.currentUser.getTypeId(),
+                                              self.currentUser.getUserId()))
+        
+        else:
+            cur.execute("SELECT list.id, list.name, list.description, username " +
+            "FROM genome_lists as list, users " +
+            "WHERE list.owner_id = users.id " +
+            "AND list.owner_id = %s " +
+            "ORDER by list.id ", (self.currentUser.getUserId(),))
+        
+        return cur.fetchall()
 
 #-------- Genome Management
     
@@ -336,7 +363,7 @@ class GenomeDatabase(object):
         
             result = cur.fetchone()
             if result is None:
-                self.ReportError("Unable to find genome : " + source_id)
+                self.ReportError("Unable to find genome : " + str(source_id))
                 return None
             
             (genome_id, ) = result
@@ -416,7 +443,7 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find source: " + source_name)
         return None
 
-    def make_tree_data(self, list_of_genome_ids, prefix):    
+    def MakeTreeData(self, list_of_genome_ids, prefix, profile):    
         """
         TODO - This function is ugly, it needs to be cleaned up.
         """
@@ -509,18 +536,18 @@ class GenomeDatabase(object):
         match = re.search('^[A-Z]$', id_prefix)
         if not match:
             self.ReportError("Tree ID prefixes must be in the range A-Z")
-            return False
+            return None
         
         try:
             fasta_fh = open(fasta_file, "rb")
         except:
             self.ReportError("Cannot open Fasta file: " + fasta_file)
-            return False
+            return None
         fasta_fh.close()
         
         if not self.currentUser:
             self.ReportError("You need to be logged in to add a FASTA file.")
-            return False
+            return None
         
         query = "SELECT tree_id FROM genomes WHERE tree_id like %s order by tree_id desc;"
         cur.execute(query, (id_prefix + '%',))
@@ -538,31 +565,35 @@ class GenomeDatabase(object):
             result = cur.fetchone()
             if not result:
                 self.ReportError("Could not find 'user' genome source. Possible database corruption.")
-                return False
+                return None
             (source_id,) = result
             if id_at_source is not None:
                 self.ReportError("You cannot specify an ID at an unspecified genome source.")
-                return False
+                return None
         
         if id_at_source is None:
             id_at_source = new_id
 
-        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data></data>\')'
+        added = time.mktime(time.localtime()) # Seconds since epoch
+
+        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data><internal><date_added>%i</date_added></internal></data>\')' % (added)
         cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
             + "VALUES (%s, %s, %s, " + initial_xml_string + ", %s, %s, %s) "
             + "RETURNING id" , (new_id, name, desc, self.currentUser.getUserId(),
                                 source_id, id_at_source))
         
-        row_id = cur.fetchone()[0]
+        genome_id = cur.fetchone()[0]
         
         fasta_lobject = self.conn.lobject(0, 'w', 0, fasta_file)
         
         cur.execute("UPDATE genomes SET genomic_fasta = %s WHERE id = %s",
-                    (fasta_lobject.oid, row_id))
+                    (fasta_lobject.oid, genome_id))
         
         fasta_lobject.close()
         
         self.conn.commit()
+        
+        return genome_id
     
 #----- Other Functions
 
