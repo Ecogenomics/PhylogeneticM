@@ -1,4 +1,5 @@
 import os
+import sys
 import psycopg2 as pg
 
 def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
@@ -22,14 +23,15 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
     chosen_markers = list()
     for marker_id, phylosift_id, size in cur:
         chosen_markers.append((marker_id, phylosift_id, size))
-
-    cur.execute("SELECT tree_id, genome_id, marker_id, sequence, name "+
-                "FROM aligned_markers, genomes " +
-                "WHERE genomes.id = genome_id " +
-                "AND dna is false")
-    
-    for tree_id, genome_id, marker_id, sequence, name in cur:
-        if (genome_id in list_of_genome_ids):
+    for genome_id in list_of_genome_ids:
+        cur.execute("SELECT tree_id, marker_id, sequence, name "+
+                    "FROM aligned_markers, genomes " +
+                    "WHERE genomes.id = genome_id " +
+                    "AND genome_id = %s" + 
+                    "AND dna is false", (genome_id,))
+        if (cur.rowcount == 0):
+            sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.".format(genome_id))
+        for tree_id, marker_id, sequence, name in cur:
             if genome_id not in aligned_markers:
                 aligned_markers[genome_id] = dict()
                 aligned_markers[genome_id]['markers']    = dict()

@@ -67,6 +67,16 @@ def AddFastaGenome(GenomeDatabase, args):
     if genome_id is not None:
         GenomeDatabase.CalculateMarkersForGenome(genome_id)
 
+def AddManyFastaGenomes(GenomeDatabase, args):
+    fh = open(args.batchfile, "rb")
+    for line in fh:
+        splitline = line.split("\t")
+        genome_id = GenomeDatabase.AddFastaGenome(splitline[0], splitline[1], splitline[2], "C")
+        if genome_id is not None:
+            GenomeDatabase.CalculateMarkersForGenome(genome_id)
+        else:
+            ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+
 def ExportFasta(GenomeDatabase, args):
     genome_id = GenomeDatabase.GetGenomeId(args.tree_ids)
     if not genome_id:
@@ -152,14 +162,11 @@ def CloneGenomeList(GenomeDatabase, args):
                                     not args.public)
 
 def CreateTreeData(GenomeDatabase, args):
-    
-    genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(args.list_id)
-    
+    genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(args.list_id)    
     if len(genome_list) > 0:
         GenomeDatabase.MakeTreeData(genome_list, args.profile)
 
 def ShowAllGenomeLists(GenomeDatabase, args):
-    
     if args.self_owned:
         genome_lists = GenomeDatabase.GetGenomeLists(GenomeDatabase.currentUser.getUserId())
     else:
@@ -179,16 +186,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='genome_tree_cli.py')
     parser.add_argument('-u', dest='login_username', required=True,
                         help='Username to log into the database')
-    parser.add_argument('-f', dest='batchfile', 
-                        help='File containing a list of batch commands (allows ' + 
-                        'the user to run mulitple commands with one password entry)')
-    
-    args =  parser.parse_known_args()[0]
-    
-    # Need to parse this before the subparsers are added to check for batch mode.
-    batchfile = None
-    if args.batchfile:
-        batchfile = args.batchfile
+    parser.add_argument('--dev', dest='dev', action='store_true',
+                        help='Run in developer mode')
     
     subparsers = parser.add_subparsers(help='Sub-Command Help', dest='subparser_name')
     
@@ -241,6 +240,13 @@ if __name__ == '__main__':
     parser_addfastagenome.add_argument('--description', dest = 'description',
                                        required=True, help='Brief description of the genome')
     parser_addfastagenome.set_defaults(func=AddFastaGenome)
+    
+    
+    parser_addmanyfastagenomes = subparsers.add_parser('AddManyFastaGenomes',
+                                    help='Add a genome to the tree from a Fasta file')
+    parser_addmanyfastagenomes.add_argument('--batchfile', dest = 'batchfile',
+                                    required=True, help='Add genomes en masse with a batch file (one genome per line, tab separated in 3 columns (filename,name,desc))')
+    parser_addmanyfastagenomes.set_defaults(func=AddManyFastaGenomes)
     
 # --------- Export FASTA Genome
     
@@ -334,18 +340,15 @@ if __name__ == '__main__':
                                          required=True,  help='Tree ID')
     parser_calculatemarkers.set_defaults(func=CalculateMarkers)
 
-    # Parse command line arguments (non-batch mode)
-    if batchfile is None:
-        args = parser.parse_args()
-    else:
-        if not os.path.exists(batchfile):
-            ErrorReport("Specified batch file doesn't exist: %s\n." % (batchfile,))
-            sys.exit(1)
-        
+    args = parser.parse_args()
+    
     # Initialise the backend
     GenomeDatabase = backend.GenomeDatabase()
-    GenomeDatabase.MakePostgresConnection()
-    
+    if args.dev:
+        GenomeDatabase.MakePostgresConnection(10000)
+    else:
+        GenomeDatabase.MakePostgresConnection()
+        
     # Login
     User = GenomeDatabase.UserLogin(args.login_username,
                                     getpass.getpass("Enter your password (%s):" %
@@ -355,22 +358,6 @@ if __name__ == '__main__':
                     "\t" + GenomeDatabase.lastErrorMessage)
         sys.exit(-1)
 
-    batch_commands = []
-    # Execute command line (non-batch mode)
-    if batchfile is None:
-        args.func(GenomeDatabase, args)
-    # Prepare, check and execute batch commands (batch mode)
-    else:
-        fh = open(batchfile, 'rb')
-        for line in fh:
-            line = line.rstrip()
-            arg_string = "-u " + args.login_username + " " + line 
-            batch_commands.append(parser.parse_args(arg_string.split()))
-        fh.close()
-        # Execute commands
-        for args in batch_commands:
-            args.func(GenomeDatabase, args)
-        
+    args.func(GenomeDatabase, args)
 
-    
 

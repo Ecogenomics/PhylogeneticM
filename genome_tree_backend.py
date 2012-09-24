@@ -48,8 +48,11 @@ class GenomeDatabase(object):
         
 #-------- Database Connection Management
 
-    def MakePostgresConnection(self):
-        self.conn = pg.connect("dbname=genome_tree user=uqaskars host=/tmp/")
+    def MakePostgresConnection(self, port=None):
+        conn_string = "dbname=genome_tree user=uqaskars host=/tmp/"
+        if port is not None:
+            conn_string += " port=" + str(port)
+        self.conn = pg.connect(conn_string)
         
     def ClosePostgresConnection(self):
         self.conn.close()
