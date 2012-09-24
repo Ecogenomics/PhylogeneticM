@@ -6,10 +6,14 @@ import tempfile
 import time
 import random
 import string
+import xml.etree.ElementTree as et
 
+# Import extension modules
 import psycopg2 as pg
 import bcrypt
-import xml.etree.ElementTree as et
+
+# Import Genome Tree Database modules
+import profiles
 
 #---- User Class
 
@@ -199,10 +203,8 @@ class GenomeDatabase(object):
         self.conn.commit()
         return True
     
-#    def DeleteUser(self, user_id):  ----- TODO: Add a function for deleting users
-        
 #-------- Genome List Management
-
+    
     def CreateGenomeList(self, genome_list, name, description, owner_id, private):
         
         cur = self.conn.cursor()
@@ -216,8 +218,18 @@ class GenomeDatabase(object):
         
         self.conn.commit()
         
-        return True
+        return genome_list_id
     
+    def CloneGenomeList(self, genome_list_id, name, description, owner_id, private):
+        
+        cur = self.conn.cursor()
+        
+        query = "SELECT genome_id FROM genome_list_contents WHERE genome_list_id = %s"
+        cur.execute(query, (genome_list_id,))
+        genome_id_list = [x[0] for x in cur.fetchall()]
+        
+        return CreateGenomeList(genome_id_list, name, description, owner_id, private)
+
     def CheckGenomeList(self):
         
         conn = GetTopParent(self).conn
@@ -370,6 +382,49 @@ class GenomeDatabase(object):
             
             return genome_id
 
+    def SearchGenomes(self, name=None, description=None, owner_id=None):
+        
+        cur = self.conn.cursor()
+        
+        search_terms = list()
+        query_params = list()
+        if owner_id is not None:
+            search_terms.append("genomes.owner_id = %s")
+            query_params.append(owner_id)
+        if name is not None:
+            search_terms.append("genomes.name ILIKE %s")
+            query_params.append('%' + name + '%')
+        if description is not None:
+            search_terms.append("genomes.description ILIKE %s")
+            query_params.append('%' + description + '%')
+        
+        search_query = ''
+        if len(search_terms):
+            search_query = ' AND ' + ' AND '.join(search_terms)
+        
+        cur.execute("SELECT tree_id, name, username, description, XMLSERIALIZE(document metadata as text) " +
+                    "FROM genomes, users " +
+                    "WHERE owner_id = users.id " + search_query, query_params)
+        
+        result = cur.fetchall()
+        
+        if len(result) == 0:
+            print "No Genomes Found"
+            return None
+        
+        return_array = []
+        for (tree_id, name, username, description, xml) in result:
+            root = et.fromstring(xml)
+            date_added = root.findall('internal/date_added')
+            if len(date_added) == 0:
+                date_added = 'Unknown Date'
+            else:
+                date_added = time.strftime('%X %x %Z',
+                                           time.localtime(float(date_added[0].text)))
+            return_array.append((tree_id, name, username, date_added, description))
+        
+        return return_array
+    
     def FindPhylosiftMarkers(self, phylosift_bin, fasta_file):
         result_dir = tempfile.mkdtemp()
         return_dict = dict()
@@ -443,67 +498,21 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find source: " + source_name)
         return None
 
-    def MakeTreeData(self, list_of_genome_ids, prefix, profile):    
-        """
-        TODO - This function is ugly, it needs to be cleaned up.
-        """
-        cur = self.conn.cursor()
-        
-        # For all of the markers, get the expected marker size.
-        aligned_markers = dict()
-        cur.execute("SELECT markers.id, database_specific_id, size " +
-                    "FROM markers, databases " +
-                    "WHERE database_id = databases.id " +
-                    "AND databases.name = 'Phylosift'"
-                    "ORDER by database_specific_id")
-        
-        chosen_markers = list()
-        for marker_id, phylosift_id, size in cur:
-            chosen_markers.append((marker_id, phylosift_id, size))
+# ------- Genome Treeing
+
+    def ReturnKnownProfiles(self):
+        return profiles.profiles.keys()
+
+    def MakeTreeData(self, list_of_genome_ids, profile, prefix=None):    
+        if profile is None:
+            profile = profiles.ReturnDefaultProfileName()
+        if profile not in profiles.profiles:
+            self.ReportError("Unknown Profile: " + profile)
+            return None
+        return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
+                                                       os.getcwd(), prefix)
+
     
-        cur.execute("SELECT tree_id, genome_id, marker_id, sequence, name "+
-                    "FROM aligned_markers, genomes " +
-                    "WHERE genomes.id = genome_id " +
-                    "AND dna is false")
-        
-        for tree_id, genome_id, marker_id, sequence, name in cur:
-            if (genome_id in list_of_genome_ids):
-                if genome_id not in aligned_markers:
-                    aligned_markers[genome_id] = dict()
-                    aligned_markers[genome_id]['markers']    = dict()
-                    aligned_markers[genome_id]['name']  = name
-                    aligned_markers[genome_id]['tree_id']  = tree_id
-                aligned_markers[genome_id]['markers'][marker_id] = sequence
-                #For all the fields, replace None type with "".
-                aligned_markers[genome_id] = dict(map((lambda (k, v): (k, "") if v is None else (k, v)),
-                                                    aligned_markers[genome_id].items()))
-    
-        gg_fh = open(prefix + ".greengenes", 'wb')
-        fasta_fh = open(prefix + ".fasta", 'wb')
-        for genome_id in aligned_markers.keys():                    
-            aligned_seq = '';
-            for marker_id, phylosift_id, size in chosen_markers:
-                if marker_id in aligned_markers[genome_id]['markers']:
-                    aligned_seq += aligned_markers[genome_id]['markers'][marker_id]
-                else:
-                    aligned_seq += size * '-'
-            fasta_outstr = ">%s\n%s\n" % (aligned_markers[genome_id]['tree_id'],
-                                          aligned_seq) 
-            gg_list = ["BEGIN",
-                       "db_name=%s" % aligned_markers[genome_id]['tree_id'],
-                       "organism=%s" % aligned_markers[genome_id]['name'],
-                       "prokMSA_id=%s" % (aligned_markers[genome_id]['tree_id']),
-                       "warning=",
-                       "aligned_seq=%s" % (aligned_seq),
-                       "END"]
-            
-            gg_outstr = "\n".join(gg_list) + "\n\n";
-            
-            gg_fh.write(gg_outstr);
-            fasta_fh.write(fasta_outstr)
-        
-        gg_fh.close()
-        fasta_fh.close()
         
 #-------- Fasta File Management
 

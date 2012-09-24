@@ -4,7 +4,9 @@ import sys
 import genome_tree_backend as backend
 import getpass
 import random
+import os
 
+import profiles
 
 def ErrorReport(msg):
     sys.stderr.write(msg)
@@ -64,23 +66,39 @@ def AddFastaGenome(GenomeDatabase, args):
     genome_id = GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, "C")
     if genome_id is not None:
         GenomeDatabase.CalculateMarkersForGenome(genome_id)
-    
-def ShowGenome(GenomeDatabase, args):
-    if args.tree_id:
-        genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
-    else:
-        genome_id = GenomeDatabase.GetGenomeId(args.id_at_source,
-                                               GenomeDatabase.GetSourceIdFromName(args.source))
-    
+
+def ExportFasta(GenomeDatabase, args):
+    genome_id = GenomeDatabase.GetGenomeId(args.tree_ids)
     if not genome_id:
         ErrorReport("Genome not found.\n")
-        
+        return None
     if args.output_fasta is None:
         print GenomeDatabase.ExportGenomicFasta(genome_id)
     elif args.output_fasta:
         print GenomeDatabase.ExportGenomicFasta(genome_id, args.output_fasta)
-    else:
-        pass # Genome info   
+
+
+def SearchGenomes(GenomeDatabase, args):
+    user_id = None
+    if args.owner is None:
+        user_id = GenomeDatabase.currentUser.getUserId()
+    elif args.owner != '-1':
+        user_id = GenomeDatabase.GetUserIdFromUsername(args.owner)
+        if user_id is None:
+            ErrorReport(GenomeDatabase.lastErrorMessage)
+            return None
+    return_array = GenomeDatabase.SearchGenomes(args.name, args.description, user_id)
+    
+    if not return_array:
+        return None
+
+    format_str = "%12.12s %50.50s %15.15s %25.25s %30.30s"
+    print format_str % ("Tree ID","Name","Owner","Added","Description")
+    for (tree_id, name, username, date_added, description) in return_array:
+        print format_str % (tree_id, name, username, date_added, description)
+
+def ShowGenome(GenomeDatabase, args):
+    pass
         
 def ShowGenomeSources(GenomeDatabase, args):
     print "Current genome sources:"
@@ -109,13 +127,36 @@ def CreateGenomeList(GenomeDatabase, args):
     GenomeDatabase.CreateGenomeList(genome_list, args.name, args.description,
                                     GenomeDatabase.currentUser.getUserId(),
                                     not args.public)
+    
+def CloneGenomeList(GenomeDatabase, args):
+    genome_source = None
+    if args.source:
+        genome_source = GenomeDatabase.GetGenomeSourceIdFromName(args.source)
+        if genome_source is None:
+            print GenomeDatabase.lastErrorMessage()
+            return False
+    genome_list = list()
+    
+    fh = open(args.filename, 'rb')
+    for line in fh:
+        line = line.rstrip()
+        genome_id = GenomeDatabase.GetGenomeId(line, genome_source)
+        if genome_id:
+            genome_list.append(genome_id)
+        else:
+            ErrorReport("Unable to find genome: %s, ignoring\n" % (line,))
+    fh.close()
+    
+    GenomeDatabase.CreateGenomeList(genome_list, args.name, args.description,
+                                    GenomeDatabase.currentUser.getUserId(),
+                                    not args.public)
 
-def CreateTree(GenomeDatabase, args):
+def CreateTreeData(GenomeDatabase, args):
     
     genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(args.list_id)
     
     if len(genome_list) > 0:
-        GenomeDatabase.MakeTreeData(genome_list, args.prefix, args.profile)
+        GenomeDatabase.MakeTreeData(genome_list, args.profile)
 
 def ShowAllGenomeLists(GenomeDatabase, args):
     
@@ -138,6 +179,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='genome_tree_cli.py')
     parser.add_argument('-u', dest='login_username', required=True,
                         help='Username to log into the database')
+    parser.add_argument('-f', dest='batchfile', 
+                        help='File containing a list of batch commands (allows ' + 
+                        'the user to run mulitple commands with one password entry)')
+    
+    args =  parser.parse_known_args()[0]
+    
+    # Need to parse this before the subparsers are added to check for batch mode.
+    batchfile = None
+    if args.batchfile:
+        batchfile = args.batchfile
     
     subparsers = parser.add_subparsers(help='Sub-Command Help', dest='subparser_name')
     
@@ -191,25 +242,39 @@ if __name__ == '__main__':
                                        required=True, help='Brief description of the genome')
     parser_addfastagenome.set_defaults(func=AddFastaGenome)
     
+# --------- Export FASTA Genome
     
-    parser_showgenome = subparsers.add_parser('ShowGenome',
+    parser_exportfasta = subparsers.add_parser('ExportFasta',
+                                    help='Export FASTA sequences for a list of genomes')
+    parser_exportfasta.add_argument('--tree_ids', dest = 'tree_ids',
+                                    help='List of Tree IDs')
+    parser_exportfasta.add_argument('--genome_list_id', dest = 'genome_list_id',
+                                    help='Name of the genome')
+    parser_exportfasta.add_argument('--output', dest = 'output_fasta',
+                                    help='Output the genome to a FASTA file')
+    parser_exportfasta.set_defaults(func=ExportFasta)
+
+# --------- Genome Searching
+
+    parser_searchgenome = subparsers.add_parser('SearchGenomes',
                                     help='Add a genome to the tree from a Fasta file')
-    parser_showgenome.add_argument('--tree_id', dest = 'tree_id',
-                                       help='Tree ID')
-    parser_showgenome.add_argument('--source', dest = 'source',
-                                       help='Name of the genome')
-    parser_showgenome.add_argument('--id', dest = 'id_at_source',
-                                       help='Brief description of the genome')
-    parser_showgenome.add_argument('--fasta', dest = 'output_fasta', nargs='?',
-                                   default = None, help='Output the genome to a FASTA file')
-    parser_showgenome.set_defaults(func=ShowGenome)
+    parser_searchgenome.add_argument('--name', dest = 'name',
+                                       help='Search for genomes containing this name')
+    parser_searchgenome.add_argument('--description', dest = 'description',
+                                       help='Search for genomes containing this description')
+    parser_searchgenome.add_argument('--owner', dest = 'owner', nargs='?', default='-1',
+                                       help='Search for genomes owned by this username. ' +
+                                      'With no parameter finds genomes owned by the current user')
+    parser_searchgenome.set_defaults(func=SearchGenomes) 
     
+# --------- Show Genome Sources
     
     parser_showgenomesources = subparsers.add_parser('ShowGenomeSources',
                                 help='Show the sources of the genomes')
     parser_showgenomesources.set_defaults(func=ShowGenomeSources)
     
-    
+# --------- Create A Genome List
+
     parser_creategenomelist = subparsers.add_parser('CreateGenomeList',
                                         help='Create a genome list from a list of accessions')
     parser_creategenomelist.add_argument('--file', dest = 'filename',
@@ -224,6 +289,21 @@ if __name__ == '__main__':
                                        action='store_true', help='Make the list visible to all users.')
     parser_creategenomelist.set_defaults(func=CreateGenomeList)
     
+# --------- Clone A Genome List
+
+    parser_clonegenomelist = subparsers.add_parser('CloneGenomeList',
+                                        help='Create a genome list from a list of accessions')
+    parser_clonegenomelist.add_argument('--list_id', dest = 'list_id', type=int,
+                                       required=True, help='File containing list of accessions')
+    parser_clonegenomelist.add_argument('--name', dest = 'name',
+                                       required=True, help='Name of the genome list')
+    parser_clonegenomelist.add_argument('--description', dest = 'description',
+                                       required=True, help='Brief description of the genome list')
+    parser_clonegenomelist.add_argument('--public', dest = 'public', default=False,
+                                       action='store_true', help='Make the list visible to all users.')
+    parser_clonegenomelist.set_defaults(func=CloneGenomeList)
+
+
 # -------- Show All Genome Lists
 
     parser_showallgenomelists = subparsers.add_parser('ShowAllGenomeLists',
@@ -234,30 +314,34 @@ if __name__ == '__main__':
 
 # -------- Generate Tree Data
     
-    parser_generatetreedata = subparsers.add_parser('CreateTree',
-                                        help='Create a genome tree')
-    parser_generatetreedata.add_argument('--prefix', dest = 'prefix',
-                                       required=True, help='Prefix of outputfiles')
+    parser_generatetreedata = subparsers.add_parser('CreateTreeData',
+                                        help='Generate data to create genome tree')
     parser_generatetreedata.add_argument('--genome_list_id', dest = 'list_id',
-                                       required=True, help='Source of the accessions listed in the file')
+                                        required=True, help='Source of the accessions listed in the file')
+    parser_generatetreedata.add_argument('--output', dest = 'out_dir',
+                                        required=True, help='Directory to output the files')
     parser_generatetreedata.add_argument('--profile', dest = 'profile',
-                                       help='Profile to use to build the tree (default: Phylosift_PMPROK)')
-    parser_generatetreedata.set_defaults(func=CreateTree)
+                                        help='Marker profile to use (default: %s)'.format(profiles.ReturnDefaultProfileName()))
+    #parser_generatetreedata.add_argument('--prefix', dest = 'prefix',
+    #                                   help='Prefix of output files ()')
+    parser_generatetreedata.set_defaults(func=CreateTreeData)
      
 # -------- Marker management subparsers
 
-    #parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
-    #                            help='Calculate markers')
-    #parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
-    #                                     required=True,  help='Tree ID')
-    #parser_calculatemarkers.set_defaults(func=CalculateMarkers)
+    parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
+                                help='Calculate markers')
+    parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
+                                         required=True,  help='Tree ID')
+    parser_calculatemarkers.set_defaults(func=CalculateMarkers)
 
-
-    # Parse command line arguments
-    args =  parser.parse_args()
-    
-    # Do non-standard parser checks
-    
+    # Parse command line arguments (non-batch mode)
+    if batchfile is None:
+        args = parser.parse_args()
+    else:
+        if not os.path.exists(batchfile):
+            ErrorReport("Specified batch file doesn't exist: %s\n." % (batchfile,))
+            sys.exit(1)
+        
     # Initialise the backend
     GenomeDatabase = backend.GenomeDatabase()
     GenomeDatabase.MakePostgresConnection()
@@ -271,9 +355,22 @@ if __name__ == '__main__':
                     "\t" + GenomeDatabase.lastErrorMessage)
         sys.exit(-1)
 
-    # Execute command line 
-    args.func(GenomeDatabase, args)
-
+    batch_commands = []
+    # Execute command line (non-batch mode)
+    if batchfile is None:
+        args.func(GenomeDatabase, args)
+    # Prepare, check and execute batch commands (batch mode)
+    else:
+        fh = open(batchfile, 'rb')
+        for line in fh:
+            line = line.rstrip()
+            arg_string = "-u " + args.login_username + " " + line 
+            batch_commands.append(parser.parse_args(arg_string.split()))
+        fh.close()
+        # Execute commands
+        for args in batch_commands:
+            args.func(GenomeDatabase, args)
+        
 
     
 
