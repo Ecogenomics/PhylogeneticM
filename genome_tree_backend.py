@@ -171,7 +171,8 @@ class GenomeDatabase(object):
         
         if not self.CheckForCurrentUserHigherPrivileges(user_id):
             if user_id != self.currentUser.getUserId():
-                self.ReportError("Unable to modify user. User may not exist or you may have insufficient privileges.")        
+                self.ReportError("Unable to modify user. User may not exist or you may have insufficient privileges.")
+                return False
         
         if userTypeId and int(userTypeId) <= self.currentUser.getTypeId():
             self.ReportError("Cannot change a user to have the same or higher level privileges as you.")
@@ -197,7 +198,7 @@ class GenomeDatabase(object):
                 return False
             else:
                 cur.execute("UPDATE users SET password = %s WHERE id = %s", 
-                    (GenerateHashedPassword(password), user_id))
+                    (self.GenerateHashedPassword(password), user_id))
         
         if userTypeId is not None:
             cur.execute("UPDATE users SET type_id = %s WHERE id = %s", 
@@ -330,11 +331,11 @@ class GenomeDatabase(object):
         else:
             return False
 
-    def GetGenomeOwner(self, genome_id):
+    def GetGenomeInfo(self, genome_id):
         
         cur = self.conn.cursor()
         
-        cur.execute("SELECT owner_id " +
+        cur.execute("SELECT tree_id, name, description, owner_id " +
             "FROM genomes " +
             "WHERE id = %s ", [genome_id])
         
@@ -343,7 +344,12 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find genome_id: " + genome_id )
             return None
         
-        (owner_id,) = result
+        return result
+    
+    def GetGenomeOwner(self, genome_id):
+        
+        (tree_id, name, description, owner_id) = self.GetGenomeInfo(genome_id)
+        
         return owner_id
 
     def GetGenomeId(self, id_at_source, source_id=None):
@@ -385,10 +391,14 @@ class GenomeDatabase(object):
             
             return genome_id
 
-    def SearchGenomes(self, name=None, description=None, owner_id=None):
+    def SearchGenomes(self, name=None, description=None, genome_list_id=None, owner_id=None):
         
         cur = self.conn.cursor()
         
+        if genome_list_id is not None and genome_list_id in self.GetGenomeLists():
+            print "No Genomes Found"
+            return None
+       
         search_terms = list()
         query_params = list()
         if owner_id is not None:
@@ -400,6 +410,9 @@ class GenomeDatabase(object):
         if description is not None:
             search_terms.append("genomes.description ILIKE %s")
             query_params.append('%' + description + '%')
+        if genome_list_id is not None:
+            search_terms.append("genomes.id in (SELECT genome_id FROM genome_list_contents WHERE list_id = %s)")
+            query_params.append(genome_list_id)
         
         search_query = ''
         if len(search_terms):
@@ -506,14 +519,14 @@ class GenomeDatabase(object):
     def ReturnKnownProfiles(self):
         return profiles.profiles.keys()
 
-    def MakeTreeData(self, list_of_genome_ids, profile, prefix=None):    
+    def MakeTreeData(self, list_of_genome_ids, profile, directory, prefix=None):    
         if profile is None:
             profile = profiles.ReturnDefaultProfileName()
         if profile not in profiles.profiles:
             self.ReportError("Unknown Profile: " + profile)
             return None
         return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
-                                                       os.getcwd(), prefix)
+                                                       directory, prefix)
 
     
         
@@ -607,6 +620,57 @@ class GenomeDatabase(object):
         
         return genome_id
     
+    def DeleteGenome(self, genome_id):
+        
+        cur = self.conn.cursor()
+        
+        # Check that you are allowed to delete this genome
+        
+        cur.execute("SELECT owner_id " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        result = cur.fetchone()
+        
+        if result is None:
+            return None
+        (owner_id,) = result
+        
+        if (not owner_id == self.currentUser.getUserId()) and not self.CheckForCurrentUserHigherPrivileges(owner_id):
+            self.lastErrorMessage = "Insufficient priviliges"
+            return None
+        
+        # Delete the fasta object
+        
+        cur.execute("SELECT genomic_fasta " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        result = cur.fetchone()
+        
+        if result is not None:
+            (genomic_oid,) = result
+            
+            fasta_lobject = self.conn.lobject(genomic_oid, 'w')
+            
+            fasta_lobject.unlink()
+        
+        # Delete the DB entries object
+        
+        cur.execute("DELETE from genome_list_contents " +
+                    "WHERE genome_id = %s", [genome_id])
+        
+        cur.execute("DELETE from aligned_markers " +
+                    "WHERE genome_id = %s", [genome_id])
+        
+        cur.execute("DELETE from genomes " +
+                    "WHERE id = %s", [genome_id])
+        
+        self.conn.commit()
+        
+        return True
+        
+        
 #----- Other Functions
 
 def readfq(fp): # this is a generator function

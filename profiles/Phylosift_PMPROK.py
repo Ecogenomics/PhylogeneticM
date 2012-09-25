@@ -30,7 +30,7 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
                     "AND genome_id = %s" + 
                     "AND dna is false", (genome_id,))
         if (cur.rowcount == 0):
-            sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.".format(genome_id))
+            sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.\n" % genome_id)
         for tree_id, marker_id, sequence, name in cur:
             if genome_id not in aligned_markers:
                 aligned_markers[genome_id] = dict()
