@@ -1,7 +1,7 @@
 import os
 import psycopg2 as pg
 
-def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
+def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **kwargs):
     """
     TODO - This function is ugly, it needs to be cleaned up.
     """

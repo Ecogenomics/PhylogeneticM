@@ -232,7 +232,42 @@ class GenomeDatabase(object):
         cur.execute(query, (genome_list_id,))
         genome_id_list = [x[0] for x in cur.fetchall()]
         
-        return CreateGenomeList(genome_id_list, name, description, owner_id, private)
+        return self.CreateGenomeList(genome_id_list, name, description, owner_id, private)
+    
+    def DeleteGenomeList(self, genome_list_id, execute):
+        """
+            Delete a genome list by providing a genome list id. The second parameter, execute,
+            is a boolean which specifies whether to actually carry out the deletion, or mearly
+            check if it can be done. This allows the prompting of the user for confirmation to
+            be handled outside the backend and thus is implementation agnostic.
+        """
+        cur = self.conn.cursor()
+        
+        query = "SELECT owner_id FROM genome_lists WHERE id = %s"
+        cur.execute(query, (genome_list_id,))
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id) + "\n")
+            return False
+        
+        (owner_id,) = result
+        # Check that we have permission to delete this list.
+        if (not self.CheckForCurrentUserHigherPrivileges(owner_id)) and (not (owner_id == self.currentUser.getUserId())):
+            self.ReportError("Insufficient privileges to delete this list: " + str(genome_list_id) + "\n")
+            return False
+        
+        if not execute:
+            return True
+            
+        query = "DELETE FROM genome_list_contents WHERE list_id = %s"
+        cur.execute(query, (genome_list_id,))
+        
+        query = "DELETE FROM genome_lists WHERE id = %s"
+        cur.execute(query, (genome_list_id,))
+        
+        self.conn.commit()
+        
+        return True
 
     def CheckGenomeList(self):
         
@@ -528,8 +563,6 @@ class GenomeDatabase(object):
         return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
                                                        directory, prefix)
 
-    
-        
 #-------- Fasta File Management
 
     def ExportGenomicFasta(self, genome_id, destfile=None):

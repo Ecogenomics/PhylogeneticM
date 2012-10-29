@@ -2,7 +2,7 @@ import os
 import sys
 import psycopg2 as pg
 
-def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
+def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **kwargs):
     """
     TODO - This function is ugly, it needs to be cleaned up.
     """
@@ -12,12 +12,29 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
     
     cur = GenomeDatabase.conn.cursor()
     
+    
+    cur.execute("SELECT count(markers.id) " +
+                "FROM markers, databases " +
+                "WHERE database_id = databases.id " +
+                "AND databases.name = 'Phylosift'")
+    
+    (total_marker_count,) = cur.fetchone()
+    
+    cur.execute("SELECT genome_id, count(marker_id) "+
+                "FROM aligned_markers, databases, markers " +
+                "WHERE marker_id = markers.id " +
+                "AND database_id = databases.id " +
+                "AND databases.name = 'Phylosift' " +
+                "GROUP BY genome_id")
+    
+    genome_gene_counts = dict(cur.fetchall())
+    
     # For all of the markers, get the expected marker size.
     aligned_markers = dict()
     cur.execute("SELECT markers.id, database_specific_id, size " +
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
-                "AND databases.name = 'Phylosift'"
+                "AND databases.name = 'Phylosift' " +
                 "ORDER by database_specific_id")
     
     chosen_markers = list()
@@ -59,6 +76,7 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None):
                    "db_name=%s" % aligned_markers[genome_id]['tree_id'],
                    "organism=%s" % aligned_markers[genome_id]['name'],
                    "prokMSA_id=%s" % (aligned_markers[genome_id]['tree_id']),
+                   "remark=%iof%i" % (genome_gene_counts[genome_id], total_marker_count),
                    "warning=",
                    "aligned_seq=%s" % (aligned_seq),
                    "END"]

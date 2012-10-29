@@ -173,6 +173,13 @@ def CloneGenomeList(GenomeDatabase, args):
                                     GenomeDatabase.currentUser.getUserId(),
                                     not args.public)
 
+def DeleteGenomeList(GenomeDatabase, args):
+    if not args.force:
+        if GenomeDatabase.DeleteGenomeList(args.list_id, args.force):
+            if raw_input("Are you sure you want to delete this list? ")[0].upper() != 'Y':
+                return False
+    GenomeDatabase.DeleteGenomeList(args.list_id, True)
+
 def CreateTreeData(GenomeDatabase, args):
     list_ids = args.list_ids.split(",")
     genome_id_set = set()
@@ -274,7 +281,7 @@ if __name__ == '__main__':
     parser_exportfasta = subparsers.add_parser('ExportFasta',
                                     help='Export a genome to a FASTA file')
     parser_exportfasta.add_argument('--tree_id', dest = 'tree_id',
-                                    help='Tree IDs')
+                                    required=True, help='Tree IDs')
     #parser_exportfasta.add_argument('--genome_list_id', dest = 'genome_list_id',
     #                                help='Name of the genome')
     parser_exportfasta.add_argument('--output', dest = 'output_fasta',
@@ -340,6 +347,16 @@ if __name__ == '__main__':
                                        action='store_true', help='Make the list visible to all users.')
     parser_clonegenomelist.set_defaults(func=CloneGenomeList)
 
+
+# --------- Delete A Genome List
+
+    parser_deletegenomelist = subparsers.add_parser('DeleteGenomeList',
+                                        help='Create a genome list from a list of accessions')
+    parser_deletegenomelist.add_argument('--list_id', dest = 'list_id', type=int,
+                                       required=True, help='ID of the genome list to delete')
+    parser_deletegenomelist.add_argument('--force', dest = 'force', action='store_true',
+                                        help='Do not prompt for confirmation of deletion')
+    parser_deletegenomelist.set_defaults(func=DeleteGenomeList)
 
 # -------- Show All Genome Lists
 
