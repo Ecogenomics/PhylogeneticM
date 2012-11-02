@@ -234,6 +234,65 @@ class GenomeDatabase(object):
         
         return self.CreateGenomeList(genome_id_list, name, description, owner_id, private)
     
+    
+    def ModifyGenomeList(self, genome_list_id, name=None, description=None, genome_ids=None,
+                         operation=None, public=None):
+        
+        cur = self.conn.cursor()
+        
+        query = "SELECT owner_id FROM genome_lists WHERE id = %s";
+        cur.execute(query, (genome_list_id,))
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id))
+            return False
+        
+        (owner_id, ) = result
+        
+        # Need to check permissions to edit this list.
+        if not(self.CheckForCurrentUserHigherPrivileges(owner_id) or owner_id == self.currentUser.getUserId()):
+            self.ReportError("Insufficient privileges to edit this list")
+            return False
+        
+        
+        if name is not None:
+            query = "UPDATE genome_lists SET name = %s WHERE id = %s";
+            cur.execute(query, (name, genome_list_id))
+            
+        if description is not None:
+            query = "UPDATE genome_lists SET description = %s WHERE id = %s";
+            cur.execute(query, (description, genome_list_id))
+            
+        if public is not None:
+            query = "UPDATE genome_lists SET private = %s WHERE id = %s";
+            cur.execute(query, (not(public), genome_list_id))
+            
+        temp_table_name = "TEMP" + str(int(time.time()))
+        
+        if genome_ids:
+            cur.execute("CREATE TEMP TABLE %s (id integer)" % (temp_table_name,) )
+            cur.executemany("INSERT INTO %s (id) VALUES (%%s)" % (temp_table_name,), [genome_ids])
+            
+            if operation == 'add':
+                query = ("INSERT INTO genome_list_contents (list_id, genome_id) " +
+                         "SELECT %s, id FROM {0} " +
+                         "WHERE id NOT IN ( " +
+                            "SELECT genome_id " +
+                            "FROM genome_list_contents " +
+                            "WHERE list_id = %s)").format(temp_table_name)
+                print cur.mogrify(query, (genome_list_id, genome_list_id))
+                cur.execute(query, (genome_list_id, genome_list_id))
+            elif operation == 'remove':
+                query = ("DELETE FROM genome_list_contents " + 
+                        "WHERE list_id = %s " + 
+                        "AND genome_id IN ( " +  
+                            "SELECT id " +
+                            "FROM {0})").format(temp_table_name)
+                cur.execute(query, [genome_list_id])
+        
+        self.conn.commit()
+        return True
+    
     def DeleteGenomeList(self, genome_list_id, execute):
         """
             Delete a genome list by providing a genome list id. The second parameter, execute,

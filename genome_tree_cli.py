@@ -109,7 +109,8 @@ def SearchGenomes(GenomeDatabase, args):
         if user_id is None:
             ErrorReport(GenomeDatabase.lastErrorMessage)
             return None
-    return_array = GenomeDatabase.SearchGenomes(args.name, args.description, args.list_id, user_id)
+    return_array = GenomeDatabase.SearchGenomes(args.name, args.description,
+                                                args.list_id, user_id)
     
     if not return_array:
         return None
@@ -149,6 +150,23 @@ def CreateGenomeList(GenomeDatabase, args):
     GenomeDatabase.CreateGenomeList(genome_list, args.name, args.description,
                                     GenomeDatabase.currentUser.getUserId(),
                                     not args.public)
+    
+def ModifyGenomeList(GenomeDatabase, args):
+    
+    tree_ids_list = []
+    
+    if args.tree_ids:
+        tree_ids_list = args.tree_ids.split(",")
+        
+    genome_ids_list = [GenomeDatabase.GetGenomeId(x) for x in tree_ids_list
+                       if GenomeDatabase.GetGenomeId(x) is not None]
+    
+    ret_val = GenomeDatabase.ModifyGenomeList(args.list_id, args.name, args.description,
+                                              genome_ids_list, args.operation, args.public)
+    
+    if not(ret_val):
+        ErrorReport(GenomeDatabase.lastErrorMessage)
+    
     
 def CloneGenomeList(GenomeDatabase, args):
     genome_source = None
@@ -333,6 +351,24 @@ if __name__ == '__main__':
                                        action='store_true', help='Make the list visible to all users.')
     parser_creategenomelist.set_defaults(func=CreateGenomeList)
     
+# --------- Modify A Genome List
+
+    parser_modifygenomelist = subparsers.add_parser('ModifyGenomeList',
+                                        help='Modify a genome list')
+    parser_modifygenomelist.add_argument('--list_id', dest = 'list_id',
+                                        required=True, help='File containing list of accessions')
+    parser_modifygenomelist.add_argument('--tree_ids', dest = 'tree_ids',
+                                        help='List of tree_ids to add/remove from list')
+    parser_modifygenomelist.add_argument('--operation', dest = 'operation', choices=('add','remove'),
+                                        help='What to do with the tree_ids with regards to the genome list.')
+    parser_modifygenomelist.add_argument('--description', dest = 'description',
+                                        help='Change the brief description of the genome list to this.')
+    parser_modifygenomelist.add_argument('--name', dest = 'name',
+                                        help='Modify the name of the list to this.')   
+    parser_modifygenomelist.add_argument('--public', dest = 'public', type=bool,
+                                        help='Change whether the list is private or public.')
+    parser_modifygenomelist.set_defaults(func=ModifyGenomeList)
+
 # --------- Clone A Genome List
 
     parser_clonegenomelist = subparsers.add_parser('CloneGenomeList',
@@ -378,8 +414,6 @@ if __name__ == '__main__':
                                         required=True, help='Directory to output the files')
     parser_createtreedata.add_argument('--profile', dest = 'profile',
                                         help='Marker profile to use (default: %s)' % (profiles.ReturnDefaultProfileName(),))
-    #parser_generatetreedata.add_argument('--prefix', dest = 'prefix',
-    #                                   help='Prefix of output files ()')
     parser_createtreedata.set_defaults(func=CreateTreeData)
      
 # -------- Marker management subparsers
