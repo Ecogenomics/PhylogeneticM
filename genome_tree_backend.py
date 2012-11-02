@@ -271,7 +271,8 @@ class GenomeDatabase(object):
         
         if genome_ids:
             cur.execute("CREATE TEMP TABLE %s (id integer)" % (temp_table_name,) )
-            cur.executemany("INSERT INTO %s (id) VALUES (%%s)" % (temp_table_name,), [genome_ids])
+            query = "INSERT INTO {0} (id) VALUES (%s)".format(temp_table_name)
+            cur.executemany(query, [(x,) for x in genome_ids])
             
             if operation == 'add':
                 query = ("INSERT INTO genome_list_contents (list_id, genome_id) " +
@@ -280,7 +281,6 @@ class GenomeDatabase(object):
                             "SELECT genome_id " +
                             "FROM genome_list_contents " +
                             "WHERE list_id = %s)").format(temp_table_name)
-                print cur.mogrify(query, (genome_list_id, genome_list_id))
                 cur.execute(query, (genome_list_id, genome_list_id))
             elif operation == 'remove':
                 query = ("DELETE FROM genome_list_contents " + 
