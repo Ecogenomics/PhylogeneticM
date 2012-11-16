@@ -113,10 +113,15 @@ def ExportFasta(GenomeDatabase, args):
         GenomeDatabase.ExportGenomicFasta(genome_id, args.output_fasta)
 
 def DeleteGenome(GenomeDatabase, args):
-    genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
-    if genome_id is not None:
-        if GenomeDatabase.DeleteGenome(genome_id) is None:
-            ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+    tree_ids = args.tree_ids.split(',')
+    for tree_id in tree_ids:
+        genome_id = GenomeDatabase.GetGenomeId(tree_id)
+        if genome_id is not None:
+            if GenomeDatabase.DeleteGenome(genome_id) is None:
+                ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+            else:
+                ErrorReport(tree_id + " sucessfully deleted.\n")
+                
 
 def SearchGenomes(GenomeDatabase, args):
     user_id = None
@@ -334,8 +339,8 @@ if __name__ == '__main__':
 
     parser_deletegenome = subparsers.add_parser('DeleteGenome',
                                     help='Delete a genome from the database')
-    parser_deletegenome.add_argument('--tree_id', dest = 'tree_id',
-                                    help='Tree IDs')
+    parser_deletegenome.add_argument('--tree_ids', dest = 'tree_ids',
+                                    required=True, help='List of Tree IDs (comma separated)')
     parser_deletegenome.set_defaults(func=DeleteGenome)
 
 # --------- Genome Searching
