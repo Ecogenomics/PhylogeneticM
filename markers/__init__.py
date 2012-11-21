@@ -14,6 +14,8 @@ phylosift_v2_markers = [Marker("PMPROK00003","2","Phylosift","phylosift/v2/PMPRO
                         Marker("PMPROK00024","2","Phylosift","phylosift/v2/PMPROK00024.hmm"),
                         Marker("PMPROK00025","2","Phylosift","phylosift/v2/PMPROK00025.hmm"),
                         Marker("PMPROK00028","2","Phylosift","phylosift/v2/PMPROK00028.hmm"),
+                        Marker("PMPROK00029","2","Phylosift","phylosift/v2/PMPROK00029.hmm"),
+                        Marker("PMPROK00031","2","Phylosift","phylosift/v2/PMPROK00031.hmm"),
                         Marker("PMPROK00034","2","Phylosift","phylosift/v2/PMPROK00034.hmm"),
                         Marker("PMPROK00041","2","Phylosift","phylosift/v2/PMPROK00041.hmm"),
                         Marker("PMPROK00047","2","Phylosift","phylosift/v2/PMPROK00047.hmm"),

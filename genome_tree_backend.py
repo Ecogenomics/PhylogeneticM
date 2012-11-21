@@ -11,9 +11,16 @@ import xml.etree.ElementTree as et
 # Import extension modules
 import psycopg2 as pg
 import bcrypt
+from simplehmmer.simplehmmer import HMMERRunner, HMMERParser
 
 # Import Genome Tree Database modules
 import profiles
+
+# Import Genome Tree Database markers
+import markers as markers_module
+
+# Need to remember the markers path
+markers_module_path = os.path.abspath(os.path.dirname(markers_module.__file__))
 
 #---- User Class
 
@@ -39,7 +46,6 @@ class GenomeDatabase(object):
         self.conn = None
         self.currentUser = None
         self.lastErrorMessage = None
-        self.phylosift_bin = "/srv/whitlam/bio/apps/sw/phylosift/genome_tree_phylosift/bin/phylosift"
 
 #-------- General Functions
     
@@ -534,30 +540,65 @@ class GenomeDatabase(object):
             return_array.append((tree_id, name, username, date_added, description))
         
         return return_array
-    
-    def FindPhylosiftMarkers(self, phylosift_bin, fasta_file):
+        
+    def FindMarkers(self, marker_database_name, version, fasta_file):
+        markers = markers_module.getAllMarkerSets()
+        filter_function = lambda x,y : (x == marker_database_name) and (y == version)
+        filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
         result_dir = tempfile.mkdtemp()
-        return_dict = dict()
-        subprocess.call([phylosift_bin, "search", "--besthit",
-                                        "--output="+ result_dir, fasta_file])
-        subprocess.call([phylosift_bin, "align", "--besthit",
-                                        "--output="+ result_dir, fasta_file])
-        for (root, dirs, files) in os.walk(result_dir + "/alignDir"):
-            for filename in files:
-                match = re.search('^(PMPROK\d*).fasta$', filename)
-                if match:
-                    prefix = match.group(1)
-                    marker_fasta = open(os.path.join(root, filename), "rb")
-                    for (name, seq, qual) in readfq(marker_fasta):
-                        if not len(seq):
-                            break
-                        if (seq.count('-') / float(len(seq))) > 0.5: # Limit to less than half gaps
-                            break
-                        return_dict[prefix] = seq
-                        break # Only want best hit.
-                    marker_fasta.close()
+        sequence_dict = dict()
+        hmmer = HMMERRunner()
+        subprocess.call(["transeq", '-sequence', fasta_file,
+                         '-outseq', os.path.join(result_dir, marker_database_name + ".faa"),
+                         '-table', '11',
+                         '-frame', '6'])
+        for marker in filtered_markers.values():
+            hmmer.search(os.path.join(markers_module_path, marker.rel_path),
+                         os.path.join(result_dir, marker_database_name + ".faa"),
+                         os.path.join(result_dir, marker.name))    
+            parser = HMMERParser(open(os.path.join(result_dir, marker.name, 'hmmer_out.txt')))
+            result = parser.next()
+            if result:
+                sequence_dict[marker.name] = result.target_name
+        
+
+        
+        target_seq_dict = dict()
+        
+        count = 0
+        for (name, seq, qual) in readfq(open(os.path.join(result_dir, marker_database_name + ".faa"))):
+            count += 1 
+            if name in sequence_dict.values():
+                target_seq_dict[name] = count
+                fh = open(os.path.join(result_dir, str(count) + ".faa"), 'wb')
+                fh.write(">" + name + "\n")
+                fh.write(seq)
+                fh.close()
+                
+        result_dict = dict()
+        
+        for (marker_name, target_name) in sequence_dict.items():
+            os.system("hmmalign --allcol --outformat Pfam -o %s %s %s" %
+                      (os.path.join(result_dir, marker_name + ".aligned"),
+                       os.path.join(markers_module_path, filtered_markers[marker_name].rel_path),
+                       os.path.join(result_dir, str(target_seq_dict[target_name]) + ".faa")))
+            fh = open(os.path.join(result_dir, marker_name + ".aligned"))
+            fh.readline()
+            fh.readline()
+            seqline = fh.readline()
+            seq_start_pos = seqline.rfind(' ')
+            fh.readline()
+            fh.readline()
+            mask = fh.readline()
+            seqline = seqline[seq_start_pos:]
+            mask = mask[seq_start_pos:]
+            seqline = ''.join([seqline[x] for x in range(0, len(seqline)) if mask[x] == 'x'])
+            if (seqline.count('-') / float(len(seqline))) > 0.5: # Limit to less than half gaps
+                continue
+            result_dict[marker_name] = seqline
+        
         subprocess.call(["rm", "-rf", result_dir])
-        return return_dict
+        return result_dict
 
     def CalculateMarkersForGenome(self, genome_id):
         
@@ -571,21 +612,45 @@ class GenomeDatabase(object):
         
         self.ExportGenomicFasta(genome_id, destfile)
         
-        markers = self.FindPhylosiftMarkers(self.phylosift_bin, destfile)
+        markers = self.FindMarkers("Phylosift","2", destfile)
         
-        for (marker_id, seq) in markers.items():
+        for (marker_database_id, seq) in markers.items():
+            cur.execute("SELECT markers.id " +
+                        "FROM markers, databases " +
+                        "WHERE database_specific_id = %s " +
+                        "AND database_id = databases.id " +
+                        "AND databases.name = 'Phylosift' " +
+                        "AND markers.version = '2'",
+                        (marker_database_id,))
+            result = cur.fetchone()
+            if result:
+                (marker_id,) = result
+            
+            cur.execute("DELETE from aligned_markers "+
+                        "WHERE genome_id = %s " +
+                        "AND marker_id = %s",
+                        (genome_id, marker_id))
             cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna, sequence) " + 
-                        "(SELECT %s, markers.id, False, %s " +
-                        "        FROM markers, databases " +
-                        "        WHERE database_specific_id = %s " +
-                        "        AND database_id = databases.id " +
-                        "        AND databases.name = 'Phylosift')" ,
-                        (genome_id, seq, marker_id))
+                        "VALUES (%s, %s, False, %s)",
+                        (genome_id, marker_id, seq))
         
         self.conn.commit()
         
         os.unlink(destfile)
-   
+        
+    def RecalculateAllMarkers(self):
+        
+        if self.currentUser.getTypeId() != 0:
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        all_genomes_array = self.SearchGenomes()
+        
+        for genome_array in all_genomes_array:
+            tree_id = genome_array[0]
+            genome_id = self.GetGenomeId(tree_id)
+            self.CalculateMarkersForGenome(genome_id)
+        
 #-------- Genome Sources Management
 
     def GetGenomeSources(self):
@@ -796,4 +861,4 @@ def readfq(fp): # this is a generator function
             if last: # reach EOF before reading enough quality
                 yield name, seq, None # yield a fasta record instead
                 break
-    
+           

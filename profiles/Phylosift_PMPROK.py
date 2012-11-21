@@ -16,7 +16,8 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
     cur.execute("SELECT count(markers.id) " +
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
-                "AND databases.name = 'Phylosift'")
+                "AND databases.name = 'Phylosift'" +
+                "AND markers.version = '2'")
     
     (total_marker_count,) = cur.fetchone()
     
@@ -25,6 +26,7 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                 "WHERE marker_id = markers.id " +
                 "AND database_id = databases.id " +
                 "AND databases.name = 'Phylosift' " +
+                "AND markers.version = '2'" +
                 "GROUP BY genome_id")
     
     genome_gene_counts = dict(cur.fetchall())
@@ -35,6 +37,7 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
                 "AND databases.name = 'Phylosift' " +
+                "AND markers.version = '2'" +
                 "ORDER by database_specific_id")
     
     chosen_markers = list()

@@ -246,8 +246,15 @@ def ShowAllGenomeLists(GenomeDatabase, args):
         print "\t".join((str(list_id), name, user, description)),"\n"
 
 def CalculateMarkers(GenomeDatabase, args):
-    genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
-    GenomeDatabase.CalculateMarkersForGenome(genome_id)
+    tree_ids = args.tree_ids.split(",")
+    for tree_id in tree_ids:
+        genome_id = GenomeDatabase.GetGenomeId(tree_id)
+        GenomeDatabase.CalculateMarkersForGenome(genome_id)
+
+def RecalculateAllMarkers(GenomeDatabase, args):
+    if not GenomeDatabase.RecalculateAllMarkers():
+        ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+
     
 if __name__ == '__main__':
     
@@ -449,9 +456,14 @@ if __name__ == '__main__':
 
     parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
                                 help='Calculate markers')
-    parser_calculatemarkers.add_argument('--tree_id', dest = 'tree_id',
-                                         required=True,  help='Tree ID')
+    parser_calculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
+                                         required=True,  help='List of Tree IDs (comma separated)')
     parser_calculatemarkers.set_defaults(func=CalculateMarkers)
+    
+    parser_calculatemarkers = subparsers.add_parser('RecalculateAllMarkers',
+                                help='Recalculate all the markers')
+
+    parser_calculatemarkers.set_defaults(func=RecalculateAllMarkers)
 
     args = parser.parse_args()
     
