@@ -546,9 +546,22 @@ class GenomeDatabase(object):
         filter_function = lambda x,y : (x == marker_database_name) and (y == version)
         filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
         result_dir = tempfile.mkdtemp()
+        
+        # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
+        fh = open(os.path.join(result_dir, "segmented_fasta.fa"), "wb")
+        for (name, seq, qual) in readfq(open(fasta_file)):
+            pos = 10000
+            while True:
+                fh.write(">%i_%i_%s\n" % (pos - 10000, pos, name))
+                fh.write(seq[pos-10000:pos] + "\n")
+                if len(seq) <= pos:
+                    break
+                pos += 5000
+        fh.close()
+        
         sequence_dict = dict()
         hmmer = HMMERRunner()
-        subprocess.call(["transeq", '-sequence', fasta_file,
+        subprocess.call(["transeq", '-sequence', os.path.join(result_dir, "segmented_fasta.fa"),
                          '-outseq', os.path.join(result_dir, marker_database_name + ".faa"),
                          '-table', '11',
                          '-frame', '6'])
