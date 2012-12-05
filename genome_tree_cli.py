@@ -83,15 +83,41 @@ def AddFastaGenome(GenomeDatabase, args):
 def AddManyFastaGenomes(GenomeDatabase, args):
     fh = open(args.batchfile, "rb")
     added_ids = []
+    errors = 0
     for line in fh:
         splitline = line.split("\t")
-        genome_id = GenomeDatabase.AddFastaGenome(splitline[0].rstrip(), splitline[1].rstrip(), splitline[2].rstrip(), "C")
-        if genome_id is not None:
-            added_ids.append(genome_id)
+        if len(splitline) >= 5:
+            if GenomeDatabase.currentUser.getTypeId() > 1:
+                ErrorReport("Only administrators can add externally referenced genomes.\n")
+                ErrorReport("Offending genome: %s\n" % (splitline[0].rstrip(),))
+                errors = 1
+                break
+            database_source_id = GenomeDatabase.GetGenomeSourceIdFromName(splitline[3].rstrip())
+            if database_source_id is None:
+                print "Unable to find database %s for genome %s" % (splitline[3].rstrip(), splitline[0].rstrip())
+                errors = 1
+                break
+            genome_id = GenomeDatabase.AddFastaGenome(splitline[0].rstrip(), splitline[1].rstrip(), splitline[2].rstrip(), "A",
+                                                      database_source_id, splitline[4].rstrip())
+            if genome_id is not None:
+                added_ids.append(genome_id)
+            else:
+                ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+                errors = 1
+                break
         else:
-            ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
-    for genome_id in added_ids:
-        GenomeDatabase.CalculateMarkersForGenome(genome_id)
+            genome_id = GenomeDatabase.AddFastaGenome(splitline[0].rstrip(), splitline[1].rstrip(), splitline[2].rstrip(), "C")
+            if genome_id is not None:
+                added_ids.append(genome_id)
+            else:
+                ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+                errors = 1
+                break
+    if errors:
+        for genome_id in added_ids:
+            GenomeDatabase.DeleteGenome(genome_id)
+        ErrorReport("Errors in mass addition, not completed. See previous error messages for details.\n")
+        return None
     if args.genome_list_name is not None:
         list_id = GenomeDatabase.CreateGenomeList(added_ids, args.genome_list_name, "",
                                                   GenomeDatabase.currentUser.getUserId(), True)
@@ -101,6 +127,8 @@ def AddManyFastaGenomes(GenomeDatabase, args):
         for genome_id in added_ids:
             (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
             print "Added %s as %s\n" % (name, tree_id)
+    for genome_id in added_ids:
+        GenomeDatabase.CalculateMarkersForGenome(genome_id)
 
 def ExportFasta(GenomeDatabase, args):
     genome_id = GenomeDatabase.GetGenomeId(args.tree_id)

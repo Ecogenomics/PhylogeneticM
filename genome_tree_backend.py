@@ -574,8 +574,6 @@ class GenomeDatabase(object):
             if result:
                 sequence_dict[marker.name] = result.target_name
         
-
-        
         target_seq_dict = dict()
         
         count = 0
