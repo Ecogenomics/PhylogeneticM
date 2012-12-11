@@ -549,10 +549,12 @@ class GenomeDatabase(object):
         
         # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
         fh = open(os.path.join(result_dir, "segmented_fasta.fa"), "wb")
+        seq_count = 0
         for (name, seq, qual) in readfq(open(fasta_file)):
+            seq_count += 1
             pos = 10000
             while True:
-                fh.write(">%i_%i_%s\n" % (pos - 10000, pos, name))
+                fh.write(">%i_%i_%i\n" % (pos - 10000, pos, seq_count))
                 fh.write(seq[pos-10000:pos] + "\n")
                 if len(seq) <= pos:
                     break
@@ -695,6 +697,8 @@ class GenomeDatabase(object):
         if profile not in profiles.profiles:
             self.ReportError("Unknown Profile: " + profile)
             return None
+        if not(os.path.exists(directory)):
+            os.makedirs(directory)
         return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
                                                        directory, prefix)
 

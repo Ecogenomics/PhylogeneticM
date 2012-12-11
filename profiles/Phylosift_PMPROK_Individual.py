@@ -16,16 +16,21 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
     cur.execute("SELECT markers.id, database_specific_id, size " +
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
-                "AND databases.name = 'Phylosift'"
+                "AND databases.name = 'Phylosift' " +
+                "AND markers.version = '2' " +
                 "ORDER by database_specific_id")
     
     chosen_markers = list()
     for marker_id, phylosift_id, size in cur:
         chosen_markers.append((marker_id, phylosift_id, size))
 
-    cur.execute("SELECT tree_id, genome_id, marker_id, sequence, name "+
-                "FROM aligned_markers, genomes " +
-                "WHERE genomes.id = genome_id " +
+    cur.execute("SELECT tree_id, genome_id, marker_id, sequence, genomes.name "+
+                "FROM aligned_markers, genomes, databases, markers " +
+                "WHERE database_id = databases.id " +
+                "AND genomes.id = genome_id " +
+                "AND markers.id = marker_id " +
+                "AND databases.name = 'Phylosift' " +
+                "AND markers.version = '2' " +
                 "AND dna is false")
     
     for tree_id, genome_id, marker_id, sequence, name in cur:
