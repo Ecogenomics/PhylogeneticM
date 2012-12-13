@@ -1,6 +1,7 @@
 import os
 import sys
 import psycopg2 as pg
+import xml.etree.ElementTree as ET
 
 def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **kwargs):
     """
@@ -44,19 +45,20 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
     for marker_id, phylosift_id, size in cur:
         chosen_markers.append((marker_id, phylosift_id, size))
     for genome_id in list_of_genome_ids:
-        cur.execute("SELECT tree_id, marker_id, sequence, name "+
+        cur.execute("SELECT tree_id, marker_id, sequence, name, XMLSERIALIZE(document metadata as text)"+
                     "FROM aligned_markers, genomes " +
                     "WHERE genomes.id = genome_id " +
                     "AND genome_id = %s" + 
                     "AND dna is false", (genome_id,))
         if (cur.rowcount == 0):
             sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.\n" % genome_id)
-        for tree_id, marker_id, sequence, name in cur:
+        for tree_id, marker_id, sequence, name, xmlstr in cur:
             if genome_id not in aligned_markers:
                 aligned_markers[genome_id] = dict()
                 aligned_markers[genome_id]['markers']    = dict()
                 aligned_markers[genome_id]['name']  = name
                 aligned_markers[genome_id]['tree_id']  = tree_id
+                aligned_markers[genome_id]['xmlstr']  = xmlstr
             aligned_markers[genome_id]['markers'][marker_id] = sequence
             #For all the fields, replace None type with "".
             aligned_markers[genome_id] = dict(map((lambda (k, v): (k, "") if v is None else (k, v)),
@@ -72,13 +74,27 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
             if marker_id in aligned_markers[genome_id]['markers']:
                 aligned_seq += aligned_markers[genome_id]['markers'][marker_id]
             else:
-                aligned_seq += size * '-'
+                aligned_seq += size * '-'            
+        root = ET.fromstring(aligned_markers[genome_id]['xmlstr'])
+        extant = root.findall('internal/greengenes/dereplicated/best_blast/greengenes_tax')
+        gg_tax = ''
+        if len(extant) != 0:
+            gg_tax = extant[0].text
+        
+        extant = root.findall('internal/taxonomy')
+        internal_tax = ''
+        if len(extant) != 0:
+            internal_tax = extant[0].text
+            
         fasta_outstr = ">%s\n%s\n" % (aligned_markers[genome_id]['tree_id'],
-                                      aligned_seq) 
+                                      aligned_seq)
+        
         gg_list = ["BEGIN",
                    "db_name=%s" % aligned_markers[genome_id]['tree_id'],
                    "organism=%s" % aligned_markers[genome_id]['name'],
                    "prokMSA_id=%s" % (aligned_markers[genome_id]['tree_id']),
+                   "genome_tree_tax_string=%s" % (internal_tax,),
+                   "greengenes_tax_string=%s" % (gg_tax,),
                    "remark=%iof%i" % (genome_gene_counts[genome_id], total_marker_count),
                    "warning=",
                    "aligned_seq=%s" % (aligned_seq),

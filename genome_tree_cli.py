@@ -283,7 +283,16 @@ def RecalculateAllMarkers(GenomeDatabase, args):
     if not GenomeDatabase.RecalculateAllMarkers():
         ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
 
-    
+def UpdateTaxonomies(GenomeDatabase, args):
+    tax_dict = dict()
+    fh = open(args.taxonomy_file,'rb')
+    for line in fh:
+        splitline = line.strip().split('\t')
+        tax_dict[splitline[0]] = splitline[1]
+    if not GenomeDatabase.UpdateTaxonomies(tax_dict):
+        ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
+
+
 if __name__ == '__main__':
     
     # create the top-level parser
@@ -492,6 +501,15 @@ if __name__ == '__main__':
                                 help='Recalculate all the markers')
 
     parser_calculatemarkers.set_defaults(func=RecalculateAllMarkers)
+
+#--------- Metadata managements
+
+    parser_updatetaxonomies = subparsers.add_parser('UpdateTaxonomies',
+                                        help='Update the internal taxonomies')
+    parser_updatetaxonomies.add_argument('--taxonomy_file', dest = 'taxonomy_file',
+                                        required=True, help='File containing tree ids and taxonomies (tab separated)')
+    parser_updatetaxonomies.set_defaults(func=UpdateTaxonomies)
+
 
     args = parser.parse_args()
     

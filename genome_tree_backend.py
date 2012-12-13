@@ -7,6 +7,8 @@ import time
 import random
 import string
 import xml.etree.ElementTree as et
+import xml_funcs
+from xml.sax.saxutils import escape
 
 # Import extension modules
 import psycopg2 as pg
@@ -663,7 +665,40 @@ class GenomeDatabase(object):
             tree_id = genome_array[0]
             genome_id = self.GetGenomeId(tree_id)
             self.CalculateMarkersForGenome(genome_id)
+
+#-------- Metadata Managements
+    
+    def UpdateTaxonomies(self, taxonomy_dict):
+        cur = self.conn.cursor()
         
+        if self.currentUser.getTypeId() != 0:
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        for (tree_id, taxonomy) in taxonomy_dict.items():
+            genome_id = self.GetGenomeId(tree_id)
+            if not genome_id:
+                self.lastErrorMessage = "Unable to find tree id: " + tree_id
+                return False
+            cur.execute("SELECT XMLSERIALIZE(document metadata as text) "+
+                        "FROM genomes " +
+                        "WHERE id = %s", (genome_id,));
+            
+            result = cur.fetchone()
+            if result:
+                (xmlstr,) = result
+            root = et.fromstring(xmlstr)
+            internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
+            taxonomy_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'taxonomy')[0][0]
+            taxonomy_node.text = escape(taxonomy)
+            
+            cur.execute("UPDATE genomes " +
+                        "SET metadata = XMLPARSE(document %s) " +
+                        "WHERE id = %s", (et.tostring(root), genome_id))
+        
+        self.conn.commit()
+        return True
+
 #-------- Genome Sources Management
 
     def GetGenomeSources(self):
