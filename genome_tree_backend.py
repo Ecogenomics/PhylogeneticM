@@ -7,11 +7,14 @@ import time
 import random
 import string
 import xml.etree.ElementTree as et
-
+import shutil
 # Import extension modules
 import psycopg2 as pg
 import bcrypt
+
 from simplehmmer.simplehmmer import HMMERRunner, HMMERParser
+from metachecka2000.dataConstructor import HMMERError, Mc2kHmmerDataConstructor as DataConstructor
+from metachecka2000.resultsParser import HMMAligner
 
 # Import Genome Tree Database modules
 import profiles
@@ -546,69 +549,48 @@ class GenomeDatabase(object):
         filter_function = lambda x,y : (x == marker_database_name) and (y == version)
         filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
         result_dir = tempfile.mkdtemp()
-        
-        # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
-        fh = open(os.path.join(result_dir, "segmented_fasta.fa"), "wb")
-        for (name, seq, qual) in readfq(open(fasta_file)):
-            pos = 10000
-            while True:
-                fh.write(">%i_%i_%s\n" % (pos - 10000, pos, name))
-                fh.write(seq[pos-10000:pos] + "\n")
-                if len(seq) <= pos:
-                    break
-                pos += 5000
-        fh.close()
-        
-        sequence_dict = dict()
-        hmmer = HMMERRunner()
-        subprocess.call(["transeq", '-sequence', os.path.join(result_dir, "segmented_fasta.fa"),
-                         '-outseq', os.path.join(result_dir, marker_database_name + ".faa"),
-                         '-table', '11',
-                         '-frame', '6'])
+
+        concatenated_hmm = tempfile.NamedTemporaryFile(delete=False)
         for marker in filtered_markers.values():
-            hmmer.search(os.path.join(markers_module_path, marker.rel_path),
-                         os.path.join(result_dir, marker_database_name + ".faa"),
-                         os.path.join(result_dir, marker.name))    
-            parser = HMMERParser(open(os.path.join(result_dir, marker.name, 'hmmer_out.txt')))
-            result = parser.next()
-            if result:
-                sequence_dict[marker.name] = result.target_name
+            with open(os.path.join(markers_module_path, marker.rel_path)) as fh:
+                for line in fh:
+                    concatenated_hmm.write(line)
         
-        target_seq_dict = dict()
+        concatenated_hmm.close()
+        closed = False
+        prefix = 'gtdb_'
+        dc = DataConstructor()
+        dc.buildData([fasta_file], result_dir, concatenated_hmm.name, closed, prefix)
+
+        aligner = HMMAligner(prefix=prefix, individualFile=True,
+                includeConsensus=False, outputFormat="Pfam")
+        aligner.makeAlignments(result_dir,
+                concatenated_hmm.name,prefix=prefix,bestHit=True)
         
-        count = 0
-        for (name, seq, qual) in readfq(open(os.path.join(result_dir, marker_database_name + ".faa"))):
-            count += 1 
-            if name in sequence_dict.values():
-                target_seq_dict[name] = count
-                fh = open(os.path.join(result_dir, str(count) + ".faa"), 'wb')
-                fh.write(">" + name + "\n")
-                fh.write(seq)
-                fh.close()
-                
         result_dict = dict()
+        for folder in os.listdir(result_dir):
+            for marker_name in filtered_markers:
+                try:
+                    with open(os.path.join(result_dir,folder,marker_name)+"_out.align") as fh:
+                        fh.readline()
+                        fh.readline()
+                        seqline = fh.readline()
+                        seq_start_pos = seqline.rfind(' ')
+                        fh.readline()
+                        fh.readline()
+                        mask = fh.readline()
+                        seqline = seqline[seq_start_pos:]
+                        mask = mask[seq_start_pos:]
+                        seqline = ''.join([seqline[x] for x in range(0, len(seqline)) if mask[x] == 'x'])
+                        if (seqline.count('-') / float(len(seqline))) > 0.5: # Limit to less than half gaps
+                            continue
+                        result_dict[marker_name] = seqline
+                except IOError:
+                    pass
+        #cleanup
+        os.remove(concatenated_hmm.name)
+        shutil.rmtree(result_dir)
         
-        for (marker_name, target_name) in sequence_dict.items():
-            os.system("hmmalign --allcol --outformat Pfam -o %s %s %s" %
-                      (os.path.join(result_dir, marker_name + ".aligned"),
-                       os.path.join(markers_module_path, filtered_markers[marker_name].rel_path),
-                       os.path.join(result_dir, str(target_seq_dict[target_name]) + ".faa")))
-            fh = open(os.path.join(result_dir, marker_name + ".aligned"))
-            fh.readline()
-            fh.readline()
-            seqline = fh.readline()
-            seq_start_pos = seqline.rfind(' ')
-            fh.readline()
-            fh.readline()
-            mask = fh.readline()
-            seqline = seqline[seq_start_pos:]
-            mask = mask[seq_start_pos:]
-            seqline = ''.join([seqline[x] for x in range(0, len(seqline)) if mask[x] == 'x'])
-            if (seqline.count('-') / float(len(seqline))) > 0.5: # Limit to less than half gaps
-                continue
-            result_dict[marker_name] = seqline
-        
-        subprocess.call(["rm", "-rf", result_dir])
         return result_dict
 
     def CalculateMarkersForGenome(self, genome_id):
@@ -624,7 +606,6 @@ class GenomeDatabase(object):
         self.ExportGenomicFasta(genome_id, destfile)
         
         markers = self.FindMarkers("Phylosift","2", destfile)
-        
         for (marker_database_id, seq) in markers.items():
             cur.execute("SELECT markers.id " +
                         "FROM markers, databases " +
