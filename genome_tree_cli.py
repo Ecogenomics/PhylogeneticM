@@ -249,7 +249,7 @@ def DeleteGenomeList(GenomeDatabase, args):
                 return False
     GenomeDatabase.DeleteGenomeList(args.list_id, True)
 
-def CreateTreeData(GenomeDatabase, args):
+def CreateTreeData(GenomeDatabase, args):    
     list_ids = args.list_ids.split(",")
     genome_id_set = set()
     if args.tree_ids:
@@ -259,9 +259,14 @@ def CreateTreeData(GenomeDatabase, args):
         temp_genome_list = GenomeDatabase.GetGenomeIdListFromGenomeListId(list_id)
         if temp_genome_list:
             genome_id_set = genome_id_set.union(set(temp_genome_list))
-        
+    core_lists = []
+    if args.core_lists:
+        if args.core_lists == 'both':
+            core_lists = ['public', 'private']
+        else:
+            core_lists = [args.core_lists]
     if len(genome_id_set) > 0:
-        GenomeDatabase.MakeTreeData(list(genome_id_set), args.profile, args.out_dir)
+        GenomeDatabase.MakeTreeData(core_lists, list(genome_id_set), args.profile, args.out_dir)
 
 def ShowAllGenomeLists(GenomeDatabase, args):
     if args.self_owned:
@@ -292,7 +297,18 @@ def UpdateTaxonomies(GenomeDatabase, args):
     if not GenomeDatabase.UpdateTaxonomies(tax_dict):
         ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
 
-
+def UpdateCoreList(GenomeDatabase, args):
+    genome_ids = list()
+    for tree_id in args.tree_ids.split(","):
+        genome_id = GenomeDatabase.GetGenomeId(tree_id)
+        if not genome_id:
+            ErrorReport("Unable to find genome id for" + tree_id + "\n" + GenomeDatabase.lastErrorMessage + "\n")
+            return False
+        else:
+            genome_ids.append(genome_id)
+    if not GenomeDatabase.UpdateCoreList(genome_ids, args.operation):
+        ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
+        
 if __name__ == '__main__':
     
     # create the top-level parser
@@ -479,8 +495,10 @@ if __name__ == '__main__':
     
     parser_createtreedata = subparsers.add_parser('CreateTreeData',
                                         help='Generate data to create genome tree')
-    parser_createtreedata.add_argument('--genome_list_ids', dest = 'list_ids',
+    parser_createtreedata.add_argument('--list_ids', dest = 'list_ids',
                                         required=True, help='Create genome tree data from these lists (comma separated).')
+    parser_createtreedata.add_argument('--core_lists', dest = 'core_lists', choices=('private', 'public', 'both'),
+                                        help='Create genome tree data from these lists (comma separated).')
     parser_createtreedata.add_argument('--tree_ids', dest = 'tree_ids',
                                         help='Add these tree_ids to the output, useful for including outgroups (comma separated).')
     parser_createtreedata.add_argument('--output', dest = 'out_dir',
@@ -510,6 +528,15 @@ if __name__ == '__main__':
                                         required=True, help='File containing tree ids and taxonomies (tab separated)')
     parser_updatetaxonomies.set_defaults(func=UpdateTaxonomies)
 
+#--------- Metadata managements - UpdateCoreList
+
+    parser_calculatemarkers = subparsers.add_parser('UpdateCoreList',
+                                help='Add/remove genomes the private/public core list.')
+    parser_calculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
+                                         required=True,  help='List of Tree IDs (comma separated)')
+    parser_calculatemarkers.add_argument('--operation', dest = 'operation', choices=('private','public','delete'),
+                                         required=True,  help='Operation to perform')
+    parser_calculatemarkers.set_defaults(func=UpdateCoreList)
 
     args = parser.parse_args()
     

@@ -666,6 +666,8 @@ class GenomeDatabase(object):
             result = cur.fetchone()
             if result:
                 (xmlstr,) = result
+            else:
+                continue
             root = et.fromstring(xmlstr)
             internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
             taxonomy_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'taxonomy')[0][0]
@@ -677,7 +679,42 @@ class GenomeDatabase(object):
         
         self.conn.commit()
         return True
-
+    
+    def UpdateCoreList(self, genome_ids, operation):
+        cur = self.conn.cursor()
+        
+        if self.currentUser.getTypeId() != 0:
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        if operation not in ["private","public","delete"]:
+            self.lastErrorMessage = "Operation needs to be one of: private, public, delete."
+            return False
+        
+        for genome_id in genome_ids:
+            cur.execute("SELECT XMLSERIALIZE(document metadata as text) "+
+            "FROM genomes " +
+            "WHERE id = %s", (genome_id,));
+            result = cur.fetchone()
+            if result:
+                (xmlstr,) = result
+            else:
+                continue
+            root = et.fromstring(xmlstr)
+            internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
+            core_list_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'core_list')[0][0]
+            if operation == "delete":
+                internal_node.remove(core_list_node)
+            else:
+                core_list_node.text = escape(operation)
+            
+            cur.execute("UPDATE genomes " +
+                        "SET metadata = XMLPARSE(document %s) " +
+                        "WHERE id = %s", (et.tostring(root), genome_id))
+            
+        self.conn.commit()
+        return True
+    
 #-------- Genome Sources Management
 
     def GetGenomeSources(self):
@@ -705,7 +742,10 @@ class GenomeDatabase(object):
     def ReturnKnownProfiles(self):
         return profiles.profiles.keys()
 
-    def MakeTreeData(self, list_of_genome_ids, profile, directory, prefix=None):    
+    def MakeTreeData(self, core_lists, list_of_genome_ids, profile, directory, prefix=None):    
+       
+        cur = self.conn.cursor()
+        
         if profile is None:
             profile = profiles.ReturnDefaultProfileName()
         if profile not in profiles.profiles:
@@ -713,6 +753,24 @@ class GenomeDatabase(object):
             return None
         if not(os.path.exists(directory)):
             os.makedirs(directory)
+
+
+        if len(core_lists) != 0:
+            genome_id_dict = dict([(genome_id, 1) for genome_id in list_of_genome_ids])
+        
+            cur.execute("SELECT id, XMLSERIALIZE(document metadata as text) " +
+                        "FROM genomes")
+        
+            for (genome_id, xmlstr) in cur.fetchall():
+                root = et.fromstring(xmlstr)
+                internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
+                core_list_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'core_list')[0][0]
+                
+                if genome_id not in genome_id_dict:
+                    if ((core_list_node.text == "private" and "private" in core_lists) or
+                        (core_list_node.text == "public" and "public" in core_lists)):
+                        list_of_genome_ids.append(genome_id)
+            
         return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
                                                        directory, prefix)
 
