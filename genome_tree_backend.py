@@ -600,35 +600,41 @@ class GenomeDatabase(object):
         cur = self.conn.cursor()
 
         if not self.CheckGenomeExists(genome_id):
-            self.ReportError("Unable to find genome_id: " + genome_id)
+            self.ReportError("Unable to find genome_id: " + str(genome_id))
             return False
         
         destfile = tempfile.mkstemp()[1]
         
         self.ExportGenomicFasta(genome_id, destfile)
         
-        markers =  dict(self.FindMarkers("Phylosift","2", destfile).items() +
-                        self.FindMarkers("pmid22170421","1", destfile).items())
+        markers = dict()
         
-        for (marker_database_id, seq) in markers.items():
-            cur.execute("SELECT markers.id " +
-                        "FROM markers, databases " +
-                        "WHERE database_specific_id = %s " +
-                        "AND database_id = databases.id " +
-                        "AND databases.name = 'Phylosift' " +
-                        "AND markers.version = '2'",
-                        (marker_database_id,))
-            result = cur.fetchone()
-            if result:
-                (marker_id,) = result
-            
-            cur.execute("DELETE from aligned_markers "+
-                        "WHERE genome_id = %s " +
-                        "AND marker_id = %s",
-                        (genome_id, marker_id))
-            cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna, sequence) " + 
-                        "VALUES (%s, %s, False, %s)",
-                        (genome_id, marker_id, seq))
+        markers["Phylosift"] = {'version': '2',
+                                'markers': self.FindMarkers("Phylosift","2", destfile)}
+        
+        markers["pmid22170421"] = {'version': '1',
+                                   'markers': self.FindMarkers("pmid22170421","1", destfile)}
+
+        for database in markers.keys():
+            for (marker_database_id, seq) in markers[database]['markers'].items():
+                cur.execute("SELECT markers.id " +
+                            "FROM markers, databases " +
+                            "WHERE database_specific_id = %s " +
+                            "AND database_id = databases.id " +
+                            "AND databases.name = %s " +
+                            "AND markers.version = %s",
+                            (marker_database_id, database, markers[database]['version']))
+                result = cur.fetchone()
+                if result:
+                    (marker_id,) = result
+                
+                cur.execute("DELETE from aligned_markers "+
+                            "WHERE genome_id = %s " +
+                            "AND marker_id = %s",
+                            (genome_id, marker_id))
+                cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna, sequence) " + 
+                            "VALUES (%s, %s, False, %s)",
+                            (genome_id, marker_id, seq))
         
         self.conn.commit()
         

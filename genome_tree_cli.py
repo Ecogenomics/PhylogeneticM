@@ -330,7 +330,9 @@ if __name__ == '__main__':
     # create the top-level parser
     parser = argparse.ArgumentParser(prog='genome_tree_cli.py')
     parser.add_argument('-u', dest='login_username', required=True,
-                        help='Username to log into the database')
+                        help='Username to log into the database'),
+    parser.add_argument('-p', dest='password_filename',
+                        help='A File containing password for the user'),
     parser.add_argument('--dev', dest='dev', action='store_true',
                         help='Run in developer mode')
     
@@ -572,9 +574,16 @@ if __name__ == '__main__':
         GenomeDatabase.MakePostgresConnection()
         
     # Login
-    User = GenomeDatabase.UserLogin(args.login_username,
-                                    getpass.getpass("Enter your password (%s):" %
-                                                    (args.login_username,) ))    
+    
+    if args.password_filename:
+        fh = open(args.password_filename, 'rb')
+        password = fh.readline().rstrip()
+        fh.close()
+    else:
+        password = getpass.getpass("Enter your password (%s):" % (args.login_username,)) 
+    
+    User = GenomeDatabase.UserLogin(args.login_username, password)    
+    
     if not User:
         ErrorReport("Database login failed. The following error was reported:\n" +
                     "\t" + GenomeDatabase.lastErrorMessage)
