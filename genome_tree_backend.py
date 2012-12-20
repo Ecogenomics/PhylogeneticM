@@ -607,7 +607,9 @@ class GenomeDatabase(object):
         
         self.ExportGenomicFasta(genome_id, destfile)
         
-        markers = self.FindMarkers("Phylosift","2", destfile)
+        markers =  dict(self.FindMarkers("Phylosift","2", destfile).items() +
+                        self.FindMarkers("pmid22170421","1", destfile).items())
+        
         for (marker_database_id, seq) in markers.items():
             cur.execute("SELECT markers.id " +
                         "FROM markers, databases " +
