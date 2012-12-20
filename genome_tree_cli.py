@@ -79,6 +79,13 @@ def AddFastaGenome(GenomeDatabase, args):
         GenomeDatabase.CalculateMarkersForGenome(genome_id)
         (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
         print "Added %s as %s\n" % (name, tree_id)
+    if args.genome_list_id is not None:
+        genome_id = GenomeDatabase.GetGenomeId(tree_id)
+        if  GenomeDatabase.ModifyGenomeList(args.genome_list_id, operation='add',
+                genome_ids=[genome_id]):
+            print "Added %s (%s) to genome list %s" % (name, tree_id, args.genome_list_id)
+        else:
+            ErrorReport("Unable to add genome "+name+ "("+tree_id+") to list "+args.genome_list_id)
 
 def AddManyFastaGenomes(GenomeDatabase, args):
     fh = open(args.batchfile, "rb")
@@ -123,6 +130,15 @@ def AddManyFastaGenomes(GenomeDatabase, args):
                                                   GenomeDatabase.currentUser.getUserId(), True)
         print "Added all genomes under list id: %s\n" % (list_id,)
         print "You can modify the list particulars using the ModifyGenomeList command.\n"
+    elif args.genome_list_id is not None:
+        #genome_ids_list = [GenomeDatabase.GetGenomeId(x) for x in added_ids
+        #                   if GenomeDatabase.GetGenomeId(x) is not None]
+        if GenomeDatabase.ModifyGenomeList(args.genome_list_id,
+                operation='add', genome_ids=added_ids):
+            print "Added %d genomes to genome list %s" % (len(added_ids),
+                    args.genome_list_id)
+        else:
+            ErrorReport("Filed to modify genome list" + args.genome_list_id)
     else:
         for genome_id in added_ids:
             (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
@@ -370,6 +386,10 @@ if __name__ == '__main__':
                                        required=True, help='Brief description of the genome')
     parser_addfastagenome.add_argument('--source', dest = 'source',
                                        help='The source of this genome (see ShowGenomeSources)')
+    parser_addfastagenome.add_argument('--modify_list', dest = 'genome_list_id',
+                                       help='Modify a genome list with the \
+                                       specified id by adding the current \
+                                       genome to it')
     parser_addfastagenome.add_argument('--id_at_source', dest = 'id_at_source',
                                        help='The id of this genome at the specified source')
     parser_addfastagenome.set_defaults(func=AddFastaGenome)
@@ -379,7 +399,11 @@ if __name__ == '__main__':
                                     help='Add a genome to the tree from a Fasta file')
     parser_addmanyfastagenomes.add_argument('--batchfile', dest = 'batchfile',
                                     required=True, help='Add genomes en masse with a batch file (one genome per line, tab separated in 3 columns (filename,name,desc))')
-    parser_addmanyfastagenomes.add_argument('--create_list', dest = 'genome_list_name',
+    mutex_group = parser_addmanyfastagenomes.add_mutually_exclusive_group()
+    mutex_group.add_argument('--modify_list', dest = 'genome_list_id',
+                                    help='Modify a genome list with the \
+                                    specified id and add all batchfile genomes into it.')
+    mutex_group.add_argument('--create_list', dest = 'genome_list_name',
                                     help='Create a genome list with the specified name and add all batchfile genomes into it.')
     parser_addmanyfastagenomes.set_defaults(func=AddManyFastaGenomes)
     
