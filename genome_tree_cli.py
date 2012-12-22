@@ -93,6 +93,7 @@ def AddManyFastaGenomes(GenomeDatabase, args):
     errors = 0
     for line in fh:
         splitline = line.split("\t")
+        print "Processing %s ..." % (splitline[1])
         if len(splitline) >= 5:
             if GenomeDatabase.currentUser.getTypeId() > 1:
                 ErrorReport("Only administrators can add externally referenced genomes.\n")
