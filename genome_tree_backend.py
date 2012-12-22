@@ -559,10 +559,9 @@ class GenomeDatabase(object):
                     concatenated_hmm.write(line)
         
         concatenated_hmm.close()
-        closed = False
         prefix = 'gtdb_'
         dc = DataConstructor()
-        dc.buildData([fasta_file], result_dir, concatenated_hmm.name, closed, prefix)
+        dc.buildData([fasta_file], result_dir, concatenated_hmm.name, prefix, quiet=True)
 
         aligner = HMMAligner(prefix=prefix, individualFile=True,
                 includeConsensus=False, outputFormat="Pfam")
