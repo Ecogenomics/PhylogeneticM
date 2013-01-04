@@ -17,8 +17,8 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
     cur.execute("SELECT count(markers.id) " +
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
-                "AND databases.name = 'Phylosift'" +
-                "AND markers.version = '2'")
+                "AND databases.name = 'pmid22170421'" +
+                "AND markers.version = '1'")
     
     (total_marker_count,) = cur.fetchone()
     
@@ -26,8 +26,8 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                 "FROM aligned_markers, databases, markers " +
                 "WHERE marker_id = markers.id " +
                 "AND database_id = databases.id " +
-                "AND databases.name = 'Phylosift' " +
-                "AND markers.version = '2'" +
+                "AND databases.name = 'pmid22170421' " +
+                "AND markers.version = '1'" +
                 "GROUP BY genome_id")
     
     genome_gene_counts = dict(cur.fetchall())
@@ -37,8 +37,8 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
     cur.execute("SELECT markers.id, database_specific_id, size " +
                 "FROM markers, databases " +
                 "WHERE database_id = databases.id " +
-                "AND databases.name = 'Phylosift' " +
-                "AND markers.version = '2'" +
+                "AND databases.name = 'pmid22170421' " +
+                "AND markers.version = '1'" +
                 "ORDER by database_specific_id")
     
     chosen_markers = list()
@@ -52,8 +52,8 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                     "AND genome_id = %s " +
                     "AND marker_id = markers.id " +
                     "AND database_id = databases.id " +
-                    "AND databases.name = 'Phylosift' " +
-                    "AND markers.version = '2'" +
+                    "AND databases.name = 'pmid22170421' " +
+                    "AND markers.version = '1'" +
                     "AND dna is false", (genome_id,))
         if (cur.rowcount == 0):
             sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.\n" % genome_id)
@@ -71,7 +71,7 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                                                 aligned_markers[genome_id].items()))
 
     if prefix is None:
-        prefix = "Phylosift_PMPROK"
+        prefix = "111_genes"
     gg_fh = open(os.path.join(directory, prefix + ".greengenes"), 'wb')
     fasta_fh = open(os.path.join(directory, prefix + ".fasta"), 'wb')
     for genome_id in aligned_markers.keys():                    

@@ -667,6 +667,7 @@ class GenomeDatabase(object):
             if not genome_id:
                 self.lastErrorMessage = "Unable to find tree id: " + tree_id
                 return False
+            taxonomy = taxonomy.replace('; ', ';')
             cur.execute("SELECT XMLSERIALIZE(document metadata as text) "+
                         "FROM genomes " +
                         "WHERE id = %s", (genome_id,));
