@@ -546,8 +546,81 @@ class GenomeDatabase(object):
             return_array.append((tree_id, name, username, date_added, description))
         
         return return_array
-        
+       
     def FindMarkers(self, marker_database_name, version, fasta_file):
+        return self.FindMarkersEmboss(marker_database_name, version, fasta_file)
+    
+    def FindMarkersEmboss(self, marker_database_name, version, fasta_file):
+        markers = markers_module.getAllMarkerSets()
+        filter_function = lambda x,y : (x == marker_database_name) and (y == version)
+        filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
+        result_dir = tempfile.mkdtemp()
+        
+        # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
+        fh = open(os.path.join(result_dir, "segmented_fasta.fa"), "wb")
+        for (name, seq, qual) in readfq(open(fasta_file)):
+            pos = 10000
+            while True:
+                fh.write(">%i_%i_%s\n" % (pos - 10000, pos, name))
+                fh.write(seq[pos-10000:pos] + "\n")
+                if len(seq) <= pos:
+                    break
+                pos += 5000
+        fh.close()
+        
+        sequence_dict = dict()
+        hmmer = HMMERRunner()
+        subprocess.call(["transeq", '-sequence', os.path.join(result_dir, "segmented_fasta.fa"),
+                         '-outseq', os.path.join(result_dir, marker_database_name + ".faa"),
+                         '-table', '11',
+                         '-frame', '6'])
+        for marker in filtered_markers.values():
+            hmmer.search(os.path.join(markers_module_path, marker.rel_path),
+                         os.path.join(result_dir, marker_database_name + ".faa"),
+                         os.path.join(result_dir, marker.name))
+            parser = HMMERParser(open(os.path.join(result_dir, marker.name, 'hmmer_out.txt')))
+            result = parser.next()
+            if result:
+                sequence_dict[marker.name] = result.target_name
+        
+        target_seq_dict = dict()
+        
+        count = 0
+        for (name, seq, qual) in readfq(open(os.path.join(result_dir, marker_database_name + ".faa"))):
+            count += 1
+            if name in sequence_dict.values():
+                target_seq_dict[name] = count
+                fh = open(os.path.join(result_dir, str(count) + ".faa"), 'wb')
+                fh.write(">" + name + "\n")
+                fh.write(seq)
+                fh.close()
+                
+        result_dict = dict()
+        
+        for (marker_name, target_name) in sequence_dict.items():
+            os.system("hmmalign --allcol --outformat Pfam -o %s %s %s" %
+                      (os.path.join(result_dir, marker_name + ".aligned"),
+                       os.path.join(markers_module_path, filtered_markers[marker_name].rel_path),
+                       os.path.join(result_dir, str(target_seq_dict[target_name]) + ".faa")))
+            fh = open(os.path.join(result_dir, marker_name + ".aligned"))
+            fh.readline()
+            fh.readline()
+            seqline = fh.readline()
+            seq_start_pos = seqline.rfind(' ')
+            fh.readline()
+            fh.readline()
+            mask = fh.readline()
+            seqline = seqline[seq_start_pos:]
+            mask = mask[seq_start_pos:]
+            seqline = ''.join([seqline[x] for x in range(0, len(seqline)) if mask[x] == 'x'])
+            if (seqline.count('-') / float(len(seqline))) > 0.5: # Limit to less than half gaps
+                continue
+            result_dict[marker_name] = seqline
+        
+        subprocess.call(["rm", "-rf", result_dir])
+        return result_dict
+    
+    def FindMarkersMetachecker(self, marker_database_name, version, fasta_file):
         markers = markers_module.getAllMarkerSets()
         filter_function = lambda x,y : (x == marker_database_name) and (y == version)
         filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
