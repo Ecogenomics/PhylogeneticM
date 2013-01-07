@@ -18,6 +18,7 @@ import bcrypt
 from simplehmmer.simplehmmer import HMMERRunner, HMMERParser
 from metachecka2000.dataConstructor import HMMERError, Mc2kHmmerDataConstructor as DataConstructor
 from metachecka2000.resultsParser import HMMAligner
+from metachecka2000.resultsParser import Mc2kHmmerResultsParser as QaParser
 
 # Import Genome Tree Database modules
 import profiles
@@ -636,6 +637,9 @@ class GenomeDatabase(object):
         dc = DataConstructor()
         dc.buildData([fasta_file], result_dir, concatenated_hmm.name, prefix, quiet=True)
 
+        qa = QaParser(prefix=prefix)
+        qa.analyseResults(result_dir, concatenated_hmm.name)
+
         aligner = HMMAligner(prefix=prefix, individualFile=True,
                 includeConsensus=False, outputFormat="Pfam")
         aligner.makeAlignments(result_dir,
@@ -643,6 +647,10 @@ class GenomeDatabase(object):
         
         result_dict = dict()
         for folder in os.listdir(result_dir):
+            # returns the summary information in metachecka for addition into
+            # the DB
+            summary_info = qa.results[folder].calculateMarkers()
+            
             for marker_name in filtered_markers:
                 try:
                     with open(os.path.join(result_dir,folder,marker_name)+"_out.align") as fh:
