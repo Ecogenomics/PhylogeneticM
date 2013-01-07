@@ -295,7 +295,17 @@ def ShowAllGenomeLists(GenomeDatabase, args):
         print "\t".join((str(list_id), name, user, description)),"\n"
 
 def CalculateMarkers(GenomeDatabase, args):
-    tree_ids = args.tree_ids.split(",")
+    tree_ids = list()
+    if args.listfile:
+        fh = open(args.listfile, 'rb')
+        for line in fh:
+            tree_ids.append(line.rstrip())   
+        fh.close()
+    elif args.tree_ids:
+        tree_ids = args.tree_ids.split(",")
+    else:
+        ErrorReport("Need to specify one of --tree_ids or --filename.\n")
+        return False
     for tree_id in tree_ids:
         genome_id = GenomeDatabase.GetGenomeId(tree_id)
         GenomeDatabase.CalculateMarkersForGenome(genome_id)
@@ -538,7 +548,9 @@ if __name__ == '__main__':
     parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
                                 help='Calculate markers')
     parser_calculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
-                                         required=True,  help='List of Tree IDs (comma separated)')
+                                         help='List of Tree IDs (comma separated)')
+    parser_calculatemarkers.add_argument('--filename', dest = 'listfile',
+                                         help='File containing list of Tree IDs (newline separated)')
     parser_calculatemarkers.set_defaults(func=CalculateMarkers)
     
     parser_calculatemarkers = subparsers.add_parser('RecalculateAllMarkers',
