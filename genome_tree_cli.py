@@ -343,7 +343,19 @@ def UpdateCoreList(GenomeDatabase, args):
             genome_ids.append(genome_id)
     if not GenomeDatabase.UpdateCoreList(genome_ids, args.operation):
         ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
-        
+
+def AddMarkers(GenomeDatabase, args):
+    input_dict = dict()
+    if args.batchfile is not None:
+        with open(args.batchfile) as fp:
+            for line in fp:
+                name, hmm_file = line.split('\t')
+                input_dict[name] = hmm_file
+    else:
+        input_dict[args.name] = args.file
+
+    GenomeDatabase.AddMarkers(input_dict)
+           
 if __name__ == '__main__':
     
     # create the top-level parser
@@ -593,6 +605,21 @@ if __name__ == '__main__':
     parser_calculatemarkers.add_argument('--operation', dest = 'operation', choices=('private','public','delete'),
                                          required=True,  help='Operation to perform')
     parser_calculatemarkers.set_defaults(func=UpdateCoreList)
+
+#--------- Marker Management - add markers
+
+    parser_addmarkers = subparsers.add_parser('AddMarkers', 
+                                 help='Add in one or many marker HMMs into the database')
+    parser_addmarkers.add_argument('--name', dest='name', required=False, 
+                                help='Name of the marker in the database')
+    parser_addmarkers.add_argument('--file', dest='file', required=False,
+                                help='File containing the HMM model for the marker')
+    parser_addmarkers.add_argument('--batchfile', dest='batchfile',
+            required=False, help='A file containing information on idividual\
+            markers and their associated HMM model files.  Format is\
+            marker_name TAB absolute path to HMM file')
+    parser_addmarkers.set_defaults(func=AddMarkers)
+
 
     args = parser.parse_args()
     

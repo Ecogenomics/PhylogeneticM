@@ -16,6 +16,7 @@ import psycopg2 as pg
 import bcrypt
 
 from simplehmmer.simplehmmer import HMMERRunner, HMMERParser
+from simplehmmer.hmmmodelparser import HmmModelParser
 from metachecka2000.dataConstructor import HMMERError, Mc2kHmmerDataConstructor as DataConstructor
 from metachecka2000.resultsParser import HMMAligner
 from metachecka2000.resultsParser import Mc2kHmmerResultsParser as QaParser
@@ -749,6 +750,33 @@ class GenomeDatabase(object):
             genome_id = self.GetGenomeId(tree_id)
             self.CalculateMarkersForGenome(genome_id)
 
+    def AddMarkers(self, marker_dict):
+        
+        if self.currentUser.getTypeId() != 0:
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        for dbname, hmmfile in marker_dict.items():
+            tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
+            try:
+                mp = HmmModelParser(hmmfile)
+                for model in mp.parse():
+                    if model.name != dbname:
+                        model.name = dbname
+                    tmpoutfile.write(str(model))
+                    tmpoutfile.close()
+
+                # TODO: Add in SQL query here to add the HMM file into the
+                # database
+
+            except OSError: # cannot open HMM file
+                self.ReportError('Failed to add %s: cannot open %s' %
+                        (dbname,hmmfile))
+                return False
+            finally:
+                os.remove(tmpoutfile.name)
+        
+        return True
 #-------- Metadata Managements
     
     def AddCustomMetadata(self, xml_path, data_dict):
