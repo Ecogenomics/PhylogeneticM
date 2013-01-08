@@ -6,9 +6,16 @@ def ReturnExtantOrCreateElement(root, child):
     extant nodes or a single element list containing the newly created node
     and created is a bool which is True if the node was created.  
     """
-    extant = root.findall(child)
-    if len(extant) == 0:
-        newNode = et.SubElement(root, child)
-        return ([newNode], True)
-    else:
-        return (extant, False)
+    xml_path_as_array = child.split('/')
+    parent = root
+    for immediate_child in xml_path_as_array:
+        extant = parent.findall(immediate_child)
+        if len(extant) == 0:
+            newNode = et.SubElement(parent, immediate_child)
+            parent = newNode
+            created = True
+        else:
+            parent = extant[0]
+            created = False
+    return ([parent], created)
+    

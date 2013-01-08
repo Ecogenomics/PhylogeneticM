@@ -314,6 +314,15 @@ def RecalculateAllMarkers(GenomeDatabase, args):
     if not GenomeDatabase.RecalculateAllMarkers():
         ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
 
+def AddCustomMetadata(GenomeDatabase, args):
+    data_dict = dict()
+    fh = open(args.metadata_file,'rb')
+    for line in fh:
+        splitline = line.strip().split('\t')
+        data_dict[splitline[0]] = splitline[1]
+    if not GenomeDatabase.UpdateTaxonomies(args.xml_path, data_dict):
+        ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
+
 def UpdateTaxonomies(GenomeDatabase, args):
     tax_dict = dict()
     fh = open(args.taxonomy_file,'rb')
@@ -560,6 +569,15 @@ if __name__ == '__main__':
 
 #--------- Metadata managements
 
+    parser_addcustommetadata = subparsers.add_parser('AddCustomMetadata',
+                                  help='Add custom metadata to the database')
+    parser_addcustommetadata.add_argument('--xml_path', dest = 'xml_path',
+                                        required=True, help='XML path of metadata to be added (e.g "data/custom/metadatafield)')
+    parser_addcustommetadata.add_argument('--metadata_file', dest = 'metadata_file',
+                                        required=True, help='File (tab separated) containing tree ids and data to be added at specified XML path')
+    parser_addcustommetadata.set_defaults(func=AddCustomMetadata)
+    
+    
     parser_updatetaxonomies = subparsers.add_parser('UpdateTaxonomies',
                                         help='Update the internal taxonomies')
     parser_updatetaxonomies.add_argument('--taxonomy_file', dest = 'taxonomy_file',

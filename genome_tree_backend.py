@@ -146,6 +146,22 @@ class GenomeDatabase(object):
         
         (user_id,) = result
         return user_id
+    
+    def CheckIfRootUser(self):
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id FROM user_types WHERE name = %s", ('root',));
+        
+        result = cur.fetchone()
+        if not result:
+            raise Exception('GenomeTreeDatabaseException: No Root User in Database!')
+            return False   
+        
+        (root_id,) = result
+        
+        if self.currentUser.getTypeId() != root_id:
+            return False
+        return True
 
     def CreateUser(self, username, password, userTypeId):
         
@@ -715,7 +731,7 @@ class GenomeDatabase(object):
         
     def RecalculateAllMarkers(self):
         
-        if self.currentUser.getTypeId() != 0:
+        if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
@@ -728,22 +744,22 @@ class GenomeDatabase(object):
 
 #-------- Metadata Managements
     
-    def UpdateTaxonomies(self, taxonomy_dict):
+    def AddCustomMetadata(self, xml_path, data_dict):
         cur = self.conn.cursor()
         
-        if self.currentUser.getTypeId() != 0:
+        if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
-        for (tree_id, taxonomy) in taxonomy_dict.items():
+        for (tree_id, data) in data_dict.items():
             genome_id = self.GetGenomeId(tree_id)
             if not genome_id:
                 self.lastErrorMessage = "Unable to find tree id: " + tree_id
                 return False
-            taxonomy = taxonomy.replace('; ', ';')
+            
             cur.execute("SELECT XMLSERIALIZE(document metadata as text) "+
-                        "FROM genomes " +
-                        "WHERE id = %s", (genome_id,));
+                "FROM genomes " +
+                "WHERE id = %s", (genome_id,));
             
             result = cur.fetchone()
             if result:
@@ -751,25 +767,33 @@ class GenomeDatabase(object):
             else:
                 continue
             root = et.fromstring(xmlstr)
-            internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
-            taxonomy_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'taxonomy')[0][0]
-            taxonomy_node.text = escape(taxonomy)
+            
+            xml_path_array = xml_path.split('/')
+            if not xml_path_array[0] == 'data':
+                self.lastErrorMessage = "The XML Path must always have 'data' as the root element"
+                return False
+            
+            update_node = xml_funcs.ReturnExtantOrCreateElement(root, '/'.join(xml_path_array[1:]))[0][0]
+            update_node.text = escape(data)
             
             cur.execute("UPDATE genomes " +
                         "SET metadata = XMLPARSE(document %s) " +
                         "WHERE id = %s", (et.tostring(root), genome_id))
-        
+            
         self.conn.commit()
         return True
+    
+    def UpdateTaxonomies(self, taxonomy_dict):
+        return self.AddCustomMetadata('data/internal/taxonomy', taxonomy_dict)
     
     def UpdateCoreList(self, genome_ids, operation):
         cur = self.conn.cursor()
         
-        if self.currentUser.getTypeId() != 0:
+        if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
-        if operation not in ["private","public","delete"]:
+        if operation not in ["private", "public", "delete"]:
             self.lastErrorMessage = "Operation needs to be one of: private, public, delete."
             return False
         
