@@ -735,6 +735,11 @@ class GenomeDatabase(object):
             self.CalculateMarkersForGenome(genome_id)
 
     def AddMarkers(self, marker_dict):
+        
+        if self.currentUser.getTypeId() != 0:
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
         for dbname, hmmfile in marker_dict.items():
             tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
             try:
@@ -754,7 +759,8 @@ class GenomeDatabase(object):
                 return False
             finally:
                 os.remove(tmpoutfile.name)
-
+        
+        return True
 #-------- Metadata Managements
     
     def UpdateTaxonomies(self, taxonomy_dict):
