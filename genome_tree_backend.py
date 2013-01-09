@@ -752,7 +752,7 @@ class GenomeDatabase(object):
 
     def AddMarkers(self, marker_dict):
         
-        if not self.CheckIfRootUser:
+        if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
