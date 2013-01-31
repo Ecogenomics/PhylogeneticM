@@ -24,12 +24,6 @@ from metachecka2000.resultsParser import Mc2kHmmerResultsParser as QaParser
 # Import Genome Tree Database modules
 import profiles
 
-# Import Genome Tree Database markers
-import markers as markers_module
-
-# Need to remember the markers path
-markers_module_path = os.path.abspath(os.path.dirname(markers_module.__file__))
-
 #---- User Class
 
 class User(object):
@@ -565,13 +559,36 @@ class GenomeDatabase(object):
         
         return return_array
        
-    def FindMarkers(self, marker_database_name, version, fasta_file):
-        return self.FindMarkersEmboss(marker_database_name, version, fasta_file)
+    def FindUncalculatedMarkersForGenomeId(self, genome_id, marker_id_list):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT marker_id, sequence " +
+                    "FROM aligned_markers " +
+                    "WHERE genome_id = %s ", (genome_id,))
+        
+        marker_id_dict = dict(cur.fetchall())
+        
+        uncalculated_marker_ids = [x for x in marker_id_list if x not in marker_id_dict]
+                
+        return uncalculated_marker_ids
     
-    def FindMarkersEmboss(self, marker_database_name, version, fasta_file):
-        markers = markers_module.getAllMarkerSets()
-        filter_function = lambda x,y : (x == marker_database_name) and (y == version)
-        filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
+    def GetMarkerIdListFromMarkerSetId(self, marker_set_id):
+        
+        cur = self.conn.cursor()
+                
+        cur.execute("SELECT marker_id " +
+                    "FROM marker_set_contents " +
+                    "WHERE set_id = %s ", (marker_set_id,))
+        
+        marker_id_list = [x[0] for x in cur.fetchall()]
+        
+        return marker_id_list
+    
+    def FindMarkers(self, fasta_file, marker_id_list):
+        return self.FindMarkersEmboss(fasta_file, marker_id_list)
+    
+    def FindMarkersEmboss(self, fasta_file, marker_id_list):
         result_dir = tempfile.mkdtemp()
         
         # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
@@ -589,22 +606,25 @@ class GenomeDatabase(object):
         sequence_dict = dict()
         hmmer = HMMERRunner()
         subprocess.call(["transeq", '-sequence', os.path.join(result_dir, "segmented_fasta.fa"),
-                         '-outseq', os.path.join(result_dir, marker_database_name + ".faa"),
+                         '-outseq', os.path.join(result_dir, "translated.faa"),
                          '-table', '11',
                          '-frame', '6'])
-        for marker in filtered_markers.values():
-            hmmer.search(os.path.join(markers_module_path, marker.rel_path),
-                         os.path.join(result_dir, marker_database_name + ".faa"),
-                         os.path.join(result_dir, marker.name))
-            parser = HMMERParser(open(os.path.join(result_dir, marker.name, 'hmmer_out.txt')))
+        
+        for marker_id in marker_id_list:
+            hmm_file = os.path.join(result_dir, "%i.hmm" % (marker_id,))
+            self.ExportMarker(marker_id, hmm_file)
+            hmmer.search(hmm_file,
+                         os.path.join(result_dir, "translated.faa"),
+                         os.path.join(result_dir, str(marker_id)))
+            parser = HMMERParser(open(os.path.join(result_dir, str(marker_id), 'hmmer_out.txt')))
             result = parser.next()
             if result:
-                sequence_dict[marker.name] = result.target_name
+                sequence_dict[marker_id] = result.target_name
         
         target_seq_dict = dict()
         
         count = 0
-        for (name, seq, qual) in readfq(open(os.path.join(result_dir, marker_database_name + ".faa"))):
+        for (name, seq, qual) in readfq(open(os.path.join(result_dir, "translated.faa"))):
             count += 1
             if name in sequence_dict.values():
                 target_seq_dict[name] = count
@@ -615,12 +635,13 @@ class GenomeDatabase(object):
                 
         result_dict = dict()
         
-        for (marker_name, target_name) in sequence_dict.items():
+        for (marker_id, target_name) in sequence_dict.items():
+            hmm_file = os.path.join(result_dir, "%i.hmm" % (marker_id,))
             os.system("hmmalign --allcol --outformat Pfam -o %s %s %s" %
-                      (os.path.join(result_dir, marker_name + ".aligned"),
-                       os.path.join(markers_module_path, filtered_markers[marker_name].rel_path),
+                      (os.path.join(result_dir, "%i.aligned" % (marker_id,)),
+                       hmm_file,
                        os.path.join(result_dir, str(target_seq_dict[target_name]) + ".faa")))
-            fh = open(os.path.join(result_dir, marker_name + ".aligned"))
+            fh = open(os.path.join(result_dir, "%i.aligned" % (marker_id,)))
             fh.readline()
             fh.readline()
             seqline = fh.readline()
@@ -633,15 +654,17 @@ class GenomeDatabase(object):
             seqline = ''.join([seqline[x] for x in range(0, len(seqline)) if mask[x] == 'x'])
             if (seqline.count('-') / float(len(seqline))) > 0.5: # Limit to less than half gaps
                 continue
-            result_dict[marker_name] = seqline
+            result_dict[marker_id] = seqline
         
         subprocess.call(["rm", "-rf", result_dir])
         return result_dict
     
+    # THIS NEEDS TO BE UPDATED TO CONFORM TO THE NEW MARKER CONFIGURATION (i.e Marker Sets).
     def FindMarkersMetachecker(self, marker_database_name, version, fasta_file):
         markers = markers_module.getAllMarkerSets()
         filter_function = lambda x,y : (x == marker_database_name) and (y == version)
         filtered_markers = dict([(x.name, x) for x in markers if filter_function(x.database, x.version)])
+        result_dict = dict()
         result_dir = tempfile.mkdtemp()
         concatenated_hmm = tempfile.NamedTemporaryFile(delete=False)
         for marker in filtered_markers.values():
@@ -662,7 +685,6 @@ class GenomeDatabase(object):
         aligner.makeAlignments(result_dir,
                 concatenated_hmm.name,prefix=prefix,bestHit=True)
         
-        result_dict = dict()
         for folder in os.listdir(result_dir):
             # returns the summary information in metachecka for addition into
             # the DB
@@ -690,9 +712,11 @@ class GenomeDatabase(object):
         os.remove(concatenated_hmm.name)
         shutil.rmtree(result_dir)
         
+        result_dir
+        
         return result_dict
 
-    def CalculateMarkersForGenome(self, genome_id):
+    def RecalculateMarkersForGenome(self, genome_id, marker_id_list=None):
         
         cur = self.conn.cursor()
 
@@ -700,42 +724,39 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find genome_id: " + str(genome_id))
             return False
         
-        destfile = tempfile.mkstemp()[1]
+        (fd, destfile) = tempfile.mkstemp()
         
         self.ExportGenomicFasta(genome_id, destfile)
-        
-        markers = dict()
-        
-        markers["Phylosift"] = {'version': '2',
-                                'markers': self.FindMarkers("Phylosift","2", destfile)}
-        
-        markers["pmid22170421"] = {'version': '1',
-                                   'markers': self.FindMarkers("pmid22170421","1", destfile)}
-
-        for database in markers.keys():
-            for (marker_database_id, seq) in markers[database]['markers'].items():
-                cur.execute("SELECT markers.id " +
-                            "FROM markers, databases " +
-                            "WHERE database_specific_id = %s " +
-                            "AND database_id = databases.id " +
-                            "AND databases.name = %s " +
-                            "AND markers.version = %s",
-                            (marker_database_id, database, markers[database]['version']))
-                result = cur.fetchone()
-                if result:
-                    (marker_id,) = result
                 
-                cur.execute("DELETE from aligned_markers "+
-                            "WHERE genome_id = %s " +
-                            "AND marker_id = %s",
-                            (genome_id, marker_id))
+        if marker_id_list is None:
+            cur.execute("SELECT id " +
+                        "FROM markers");
+            
+            marker_id_list = [x[0] for x in cur.fetchall()]
+        
+        markers = self.FindMarkers(destfile, marker_id_list)
+
+        for marker_id in marker_id_list:
+            cur.execute("DELETE from aligned_markers "+
+                        "WHERE genome_id = %s " +
+                        "AND marker_id = %s",
+                        (genome_id, marker_id))
+            if marker_id in markers:
                 cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna, sequence) " + 
                             "VALUES (%s, %s, False, %s)",
-                            (genome_id, marker_id, seq))
+                            (genome_id, marker_id, markers[marker_id]))
+            else:
+                cur.execute("INSERT into aligned_markers (genome_id, marker_id, dna) " + 
+                            "VALUES (%s, %s, False)",
+                            (genome_id, marker_id))
         
         self.conn.commit()
         
+        os.close(fd)
+        
         os.unlink(destfile)
+        
+        
         
     def RecalculateAllMarkers(self):
         
@@ -748,35 +769,148 @@ class GenomeDatabase(object):
         for genome_array in all_genomes_array:
             tree_id = genome_array[0]
             genome_id = self.GetGenomeId(tree_id)
-            self.CalculateMarkersForGenome(genome_id)
+            self.RecalculateMarkersForGenome(genome_id)
 
-    def AddMarkers(self, marker_dict):
+    
+    
+    def AddMarkers(self, hmm_file, database_id):
+         
+        cur = self.conn.cursor()
         
         if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
-        for dbname, hmmfile in marker_dict.items():
-            tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
-            try:
-                mp = HmmModelParser(hmmfile)
-                for model in mp.parse():
-                    if model.name != dbname:
-                        model.name = dbname
-                    tmpoutfile.write(str(model))
-                    tmpoutfile.close()
-
-                # TODO: Add in SQL query here to add the HMM file into the
-                # database
-
-            except OSError: # cannot open HMM file
-                self.ReportError('Failed to add %s: cannot open %s' %
-                        (dbname,hmmfile))
-                return False
-            finally:
-                os.remove(tmpoutfile.name)
+        try:
+            mp = HmmModelParser(hmm_file)
+            added_oids = list()
+            for model in mp.parse():
+                splitdate = model.date.split()
+                postgres_date = "%s %s" % ("-".join([splitdate[1], splitdate[2], splitdate[4]]), splitdate[3])
+        
+                try:
+                    model.acc
+                except AttributeError:
+                    model.acc = model.name
+                
+                try:
+                    model.desc
+                except AttributeError:
+                    model.desc = model.name
+                
+                tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
+                tmpoutfile.write(str(model))
+                tmpoutfile.close()
+            
+                cur.execute("INSERT into markers (database_specific_id, name, size, database_id, timestamp) "+
+                            "VALUES (%s, %s, %s, %s, %s) "+
+                            "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
+                
+                marker_id = cur.fetchone()[0]
+            
+                marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
+            
+                cur.execute("UPDATE markers SET hmm = %s WHERE id = %s",
+                        (marker_lobject.oid, marker_id))
+                
+                added_oids.append(marker_lobject.oid)
+            
+                marker_lobject.close()
+        
+            self.conn.commit()
+            
+        except: # cannot open HMM file
+            self.ReportError('Failed to add markers')
+            raise
+        finally:
+            os.remove(tmpoutfile.name)
+            for oid in added_oids:
+                marker_lobject = self.conn.lobject(oid, 'w')
+                marker_lobject.unlink()
         
         return True
+    
+        
+    def DeleteMarker(self, marker_id):
+        
+        cur = self.conn.cursor()
+        
+        # Check that you are allowed to delete this genome
+        if not self.CheckIfRootUser():
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        # Delete the marker object
+        
+        cur.execute("SELECT hmm " +
+            "FROM markers " +
+            "WHERE id = %s ", [marker_id])
+        
+        result = cur.fetchone()
+        
+        if result is not None:
+            (marker_oid,) = result
+            
+            marker_lobject = self.conn.lobject(marker_oid, 'w')
+            
+            marker_lobject.unlink()
+        
+        # Delete the DB entries object
+        
+        cur.execute("DELETE from marker_set_contents " +
+                    "WHERE marker_id = %s", [marker_id])
+        
+        cur.execute("DELETE from aligned_markers " +
+                    "WHERE marker_id = %s", [marker_id])
+        
+        cur.execute("DELETE from markers " +
+                    "WHERE id = %s", [marker_id])
+        
+        self.conn.commit()
+        
+        return True
+        
+    
+    def ExportMarker(self, marker_id, destfile=None):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT hmm " +
+                    "FROM markers " +
+                    "WHERE id = %s ", [marker_id])
+        
+        result = cur.fetchone()
+        
+        if result is None:
+            return None
+        (hmm_oid,) = result
+        
+        hmm_lobject = self.conn.lobject(hmm_oid, 'r')
+        
+        if destfile is None:
+            return hmm_lobject.read()
+        else:
+            hmm_lobject.export(destfile)
+        
+        return True
+    
+    
+    def AddMarkerSet(self, marker_list, name, description, owner_id, private=True):
+        
+        cur = self.conn.cursor()
+        
+        query = "INSERT INTO marker_sets (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
+        cur.execute(query, (name, description, owner_id, private))
+        (marker_list_id, ) = cur.fetchone()
+        
+        query = "INSERT INTO marker_set_contents (set_id, marker_id) VALUES (%s, %s)"
+        cur.executemany(query, [(marker_list_id, x) for x in marker_list])
+        
+        self.conn.commit()
+        
+        return marker_list_id
+        
+        
 #-------- Metadata Managements
     
     def AddCustomMetadata(self, xml_path, data_dict):
@@ -883,7 +1017,7 @@ class GenomeDatabase(object):
     def ReturnKnownProfiles(self):
         return profiles.profiles.keys()
 
-    def MakeTreeData(self, core_lists, list_of_genome_ids, profile, directory, prefix=None):    
+    def MakeTreeData(self, marker_set_id, core_lists, list_of_genome_ids, profile, directory, prefix=None):    
        
         cur = self.conn.cursor()
         
@@ -894,7 +1028,6 @@ class GenomeDatabase(object):
             return None
         if not(os.path.exists(directory)):
             os.makedirs(directory)
-
 
         if len(core_lists) != 0:
             genome_id_dict = dict([(genome_id, 1) for genome_id in list_of_genome_ids])
@@ -911,8 +1044,18 @@ class GenomeDatabase(object):
                     if ((core_list_node.text == "private" and "private" in core_lists) or
                         (core_list_node.text == "public" and "public" in core_lists)):
                         list_of_genome_ids.append(genome_id)
-            
-        return profiles.profiles[profile].MakeTreeData(self, list_of_genome_ids,
+                        
+        
+        for genome_id in list_of_genome_ids:
+            uncalculated = self.FindUncalculatedMarkersForGenomeId(genome_id,
+                                                                   self.GetMarkerIdListFromMarkerSetId(marker_set_id))
+
+            if len(uncalculated) != 0:
+                print uncalculated
+                print "Markers not calculated for %s, calculating now...\n" % (self.GetGenomeInfo(genome_id)[0],)
+                self.RecalculateMarkersForGenome(genome_id, uncalculated)
+          
+        return profiles.profiles[profile].MakeTreeData(self, marker_set_id, list_of_genome_ids,
                                                        directory, prefix)
 
 #-------- Fasta File Management
@@ -1054,7 +1197,6 @@ class GenomeDatabase(object):
         self.conn.commit()
         
         return True
-        
         
 #----- Other Functions
 

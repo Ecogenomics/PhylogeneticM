@@ -76,7 +76,6 @@ def AddFastaGenome(GenomeDatabase, args):
     else:
         genome_id = GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, 'C')
     if genome_id is not None:
-        GenomeDatabase.CalculateMarkersForGenome(genome_id)
         (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
         print "Added %s as %s\n" % (name, tree_id)
     if args.genome_list_id is not None:
@@ -143,8 +142,6 @@ def AddManyFastaGenomes(GenomeDatabase, args):
         for genome_id in added_ids:
             (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
             print "Added %s as %s\n" % (name, tree_id)
-    for genome_id in added_ids:
-        GenomeDatabase.CalculateMarkersForGenome(genome_id)
 
 def ExportFasta(GenomeDatabase, args):
     genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
@@ -240,7 +237,7 @@ def CloneGenomeList(GenomeDatabase, args):
     if args.source:
         genome_source = GenomeDatabase.GetGenomeSourceIdFromName(args.source)
         if genome_source is None:
-            print GenomeDatabase.lastErrorMessage()
+            ErrorReport(GenomeDatabase.lastErrorMessage)
             return False
     genome_list = list()
     
@@ -266,7 +263,9 @@ def DeleteGenomeList(GenomeDatabase, args):
     GenomeDatabase.DeleteGenomeList(args.list_id, True)
 
 def CreateTreeData(GenomeDatabase, args):    
-    list_ids = args.list_ids.split(",")
+    list_ids = []
+    if args.list_ids:
+        list_ids = args.list_ids.split(",")
     genome_id_set = set()
     if args.tree_ids:
         extra_ids = [GenomeDatabase.GetGenomeId(x) for x in args.tree_ids.split(",")]
@@ -281,8 +280,8 @@ def CreateTreeData(GenomeDatabase, args):
             core_lists = ['public', 'private']
         else:
             core_lists = [args.core_lists]
-    if len(genome_id_set) > 0:
-        GenomeDatabase.MakeTreeData(core_lists, list(genome_id_set), args.profile, args.out_dir)
+    if (len(genome_id_set) > 0) or (len(core_lists) != 0):
+        GenomeDatabase.MakeTreeData(args.marker_set_id, core_lists, list(genome_id_set), args.profile, args.out_dir)
 
 def ShowAllGenomeLists(GenomeDatabase, args):
     if args.self_owned:
@@ -294,7 +293,7 @@ def ShowAllGenomeLists(GenomeDatabase, args):
     for (list_id, name, description, user) in genome_lists:
         print "\t".join((str(list_id), name, user, description)),"\n"
 
-def CalculateMarkers(GenomeDatabase, args):
+def RecalculateMarkers(GenomeDatabase, args):
     tree_ids = list()
     if args.listfile:
         fh = open(args.listfile, 'rb')
@@ -308,7 +307,7 @@ def CalculateMarkers(GenomeDatabase, args):
         return False
     for tree_id in tree_ids:
         genome_id = GenomeDatabase.GetGenomeId(tree_id)
-        GenomeDatabase.CalculateMarkersForGenome(genome_id)
+        GenomeDatabase.RecalculateMarkersForGenome(genome_id)
 
 def RecalculateAllMarkers(GenomeDatabase, args):
     if not GenomeDatabase.RecalculateAllMarkers():
@@ -342,20 +341,17 @@ def UpdateCoreList(GenomeDatabase, args):
         else:
             genome_ids.append(genome_id)
     if not GenomeDatabase.UpdateCoreList(genome_ids, args.operation):
-        ErrorReport(GenomeDatabase.lastErrorMessage() + "\n")
+        ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
 
 def AddMarkers(GenomeDatabase, args):
-    input_dict = dict()
-    if args.batchfile is not None:
-        with open(args.batchfile) as fp:
-            for line in fp:
-                name, hmm_file = line.split('\t')
-                input_dict[name] = hmm_file
-    else:
-        input_dict[args.name] = args.file
+    if not GenomeDatabase.AddMarkers(args.file, args.dbname):
+        ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+        return False
+    
+def DeleteMarkers(GenomeDatabase, args):
+    for marker_id in args.marker_ids.split(','):
+        GenomeDatabase.DeleteMarker(marker_id)
 
-    GenomeDatabase.AddMarkers(input_dict)
-           
 if __name__ == '__main__':
     
     # create the top-level parser
@@ -552,10 +548,12 @@ if __name__ == '__main__':
     
     parser_createtreedata = subparsers.add_parser('CreateTreeData',
                                         help='Generate data to create genome tree')
-    parser_createtreedata.add_argument('--list_ids', dest = 'list_ids',
-                                        required=True, help='Create genome tree data from these lists (comma separated).')
     parser_createtreedata.add_argument('--core_lists', dest = 'core_lists', choices=('private', 'public', 'both'),
+                                        help='Include the genomes from one or all of the ACE core genome lists in the output files.')
+    parser_createtreedata.add_argument('--list_ids', dest = 'list_ids',
                                         help='Create genome tree data from these lists (comma separated).')
+    parser_createtreedata.add_argument('--set_id', dest = 'marker_set_id',
+                                        required=True, help='Use this marker set for the genome tree.')
     parser_createtreedata.add_argument('--tree_ids', dest = 'tree_ids',
                                         help='Add these tree_ids to the output, useful for including outgroups (comma separated).')
     parser_createtreedata.add_argument('--output', dest = 'out_dir',
@@ -566,18 +564,18 @@ if __name__ == '__main__':
      
 # -------- Marker management subparsers
 
-    parser_calculatemarkers = subparsers.add_parser('CalculateMarkers',
-                                help='Calculate markers')
-    parser_calculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
+    parser_recalculatemarkers = subparsers.add_parser('RecalculateMarkers',
+                                help='Recalculate markers')
+    parser_recalculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
                                          help='List of Tree IDs (comma separated)')
-    parser_calculatemarkers.add_argument('--filename', dest = 'listfile',
+    parser_recalculatemarkers.add_argument('--filename', dest = 'listfile',
                                          help='File containing list of Tree IDs (newline separated)')
-    parser_calculatemarkers.set_defaults(func=CalculateMarkers)
+    parser_recalculatemarkers.set_defaults(func=RecalculateMarkers)
     
-    parser_calculatemarkers = subparsers.add_parser('RecalculateAllMarkers',
+    parser_recalculateallmarkers = subparsers.add_parser('RecalculateAllMarkers',
                                 help='Recalculate all the markers')
 
-    parser_calculatemarkers.set_defaults(func=RecalculateAllMarkers)
+    parser_recalculateallmarkers.set_defaults(func=RecalculateAllMarkers)
 
 #--------- Metadata managements
 
@@ -598,27 +596,33 @@ if __name__ == '__main__':
 
 #--------- Metadata managements - UpdateCoreList
 
-    parser_calculatemarkers = subparsers.add_parser('UpdateCoreList',
+    parser_updatecorelist = subparsers.add_parser('UpdateCoreList',
                                 help='Add/remove genomes the private/public core list.')
-    parser_calculatemarkers.add_argument('--tree_ids', dest = 'tree_ids',
+    parser_updatecorelist.add_argument('--tree_ids', dest = 'tree_ids',
                                          required=True,  help='List of Tree IDs (comma separated)')
-    parser_calculatemarkers.add_argument('--operation', dest = 'operation', choices=('private','public','delete'),
+    parser_updatecorelist.add_argument('--operation', dest = 'operation', choices=('private','public','delete'),
                                          required=True,  help='Operation to perform')
-    parser_calculatemarkers.set_defaults(func=UpdateCoreList)
+    parser_updatecorelist.set_defaults(func=UpdateCoreList)
 
-#--------- Marker Management - add markers
+#--------- Marker Management - AddMarkers
 
     parser_addmarkers = subparsers.add_parser('AddMarkers', 
                                  help='Add in one or many marker HMMs into the database')
-    parser_addmarkers.add_argument('--name', dest='name', required=False, 
-                                help='Name of the marker in the database')
-    parser_addmarkers.add_argument('--file', dest='file', required=False,
-                                help='File containing the HMM model for the marker')
-    parser_addmarkers.add_argument('--batchfile', dest='batchfile',
-            required=False, help='A file containing information on idividual\
-            markers and their associated HMM model files.  Format is\
-            marker_name TAB absolute path to HMM file')
+    parser_addmarkers.add_argument('--database_name', dest='dbname', required=True, 
+                                help='Name of the database that the markers belong to')
+    parser_addmarkers.add_argument('--file', dest='file', required=True,
+                                help='File containing the HMM model(s) for the marker(s)')
     parser_addmarkers.set_defaults(func=AddMarkers)
+    
+
+#--------- Marker Management - DeleteMarkers
+
+    parser_deletemarkers = subparsers.add_parser('DeleteMarkers',
+                                    help='Delete markers from the database')
+    parser_deletemarkers.add_argument('--marker_ids', dest = 'marker_ids',
+                                    required=True, help='List of Marker IDs (comma separated)')
+    parser_deletemarkers.set_defaults(func=DeleteMarkers)
+
 
 
     args = parser.parse_args()

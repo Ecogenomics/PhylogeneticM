@@ -1,10 +1,8 @@
-import Phylosift_PMPROK
-import Phylosift_PMPROK_Individual
-import pmid22170421
+import generic
+import phil_30_filter
 
-profiles = {"Phylosift_PMPROK" : Phylosift_PMPROK,
-            "Phylosift_PMPROK_Individual" : Phylosift_PMPROK_Individual,
-            "111_genes" : pmid22170421}
+profiles = {"generic" : generic,
+            "phil_30_filter": phil_30_filter}
 
 def ReturnDefaultProfileName():
-    return "Phylosift_PMPROK"
+    return "generic"

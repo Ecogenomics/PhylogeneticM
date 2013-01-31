@@ -3,7 +3,7 @@ import sys
 import psycopg2 as pg
 import xml.etree.ElementTree as ET
 
-def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **kwargs):
+def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, prefix=None, **kwargs):
     """
     TODO - This function is ugly, it needs to be cleaned up.
     """
@@ -12,52 +12,64 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
         return None
     
     cur = GenomeDatabase.conn.cursor()
-    
-    
-    cur.execute("SELECT count(markers.id) " +
-                "FROM markers, databases " +
-                "WHERE database_id = databases.id " +
-                "AND databases.name = 'pmid22170421'" +
-                "AND markers.version = '1'")
+      
+    cur.execute("SELECT count(*) " +
+                "FROM marker_set_contents  " +
+                "WHERE set_id = %s", (marker_set_id,))
     
     (total_marker_count,) = cur.fetchone()
     
-    cur.execute("SELECT genome_id, count(marker_id) "+
-                "FROM aligned_markers, databases, markers " +
-                "WHERE marker_id = markers.id " +
-                "AND database_id = databases.id " +
-                "AND databases.name = 'pmid22170421' " +
-                "AND markers.version = '1'" +
-                "GROUP BY genome_id")
+    cur.execute("SELECT genome_id, count(aligned_markers.marker_id) "+
+                "FROM aligned_markers, marker_set_contents " +
+                "WHERE set_id = %s " +
+                "AND aligned_markers.marker_id =  marker_set_contents.marker_id " +
+                "GROUP BY genome_id", (marker_set_id,))
     
     genome_gene_counts = dict(cur.fetchall())
     
-    # For all of the markers, get the expected marker size.
-    aligned_markers = dict()
-    cur.execute("SELECT markers.id, database_specific_id, size " +
-                "FROM markers, databases " +
-                "WHERE database_id = databases.id " +
-                "AND databases.name = 'pmid22170421' " +
-                "AND markers.version = '1'" +
-                "ORDER by database_specific_id")
+    cur.execute("SELECT genome_id, count(aligned_markers.marker_id) "+
+                "FROM aligned_markers, marker_set_contents " +
+                "WHERE set_id = 1 " +
+                "AND aligned_markers.marker_id =  marker_set_contents.marker_id " +
+                "GROUP BY genome_id")
+    
+    phylosift_gene_counts = dict(cur.fetchall())
     
     chosen_markers = list()
-    for marker_id, phylosift_id, size in cur:
-        chosen_markers.append((marker_id, phylosift_id, size))
+    
+    # For all of the markers, get the expected marker size.
+    cur.execute("SELECT markers.id, size " +
+                "FROM markers, marker_set_contents " +
+                "WHERE set_id = %s " +
+                "AND marker_id = markers.id "
+                "ORDER by markers.id", (marker_set_id,))
+    
+    for marker_id, size in cur:
+        chosen_markers.append((marker_id, size))
+    
+    aligned_markers = dict()
+    
     for genome_id in list_of_genome_ids:
-        cur.execute("SELECT tree_id, marker_id, sequence, genomes.name, XMLSERIALIZE(document metadata as text), username "+
-                    "FROM aligned_markers, genomes, users, databases, markers " +
-                    "WHERE genomes.id = genome_id " +
-                    "AND users.id = owner_id "
+        cur.execute("SELECT tree_id, name, XMLSERIALIZE(document metadata as text), username "+
+                    "FROM genomes, users "+
+                    "WHERE users.id = owner_id "+
+                    "AND genomes.id = %s", (genome_id,))
+        result = cur.fetchone()
+        if not result:
+            continue
+        (tree_id, name, xmlstr, owner) = result
+        # Check if complete.
+        if phylosift_gene_counts[genome_id] < 20:
+            sys.stderr.write("WARNING: Genome %s has < 30 markers (%i) in the database and will be missing from the output files.\n" % (tree_id, phylosift_gene_counts[genome_id]))
+            continue
+        cur.execute("SELECT aligned_markers.marker_id, sequence "
+                    "FROM aligned_markers, marker_set_contents "+
+                    "WHERE marker_set_contents.marker_id = aligned_markers.marker_id " +
                     "AND genome_id = %s " +
-                    "AND marker_id = markers.id " +
-                    "AND database_id = databases.id " +
-                    "AND databases.name = 'pmid22170421' " +
-                    "AND markers.version = '1'" +
-                    "AND dna is false", (genome_id,))
+                    "AND set_id = %s ", (genome_id, marker_set_id))
         if (cur.rowcount == 0):
-            sys.stderr.write("WARNING: Genome id %s has no markers in the database and will be missing from the output files.\n" % genome_id)
-        for tree_id, marker_id, sequence, name, xmlstr, owner in cur:
+            sys.stderr.write("WARNING: Genome %s has no markers in the database and will be missing from the output files.\n" % tree_id)
+        for marker_id, sequence in cur:
             if genome_id not in aligned_markers:
                 aligned_markers[genome_id] = dict()
                 aligned_markers[genome_id]['markers']    = dict()
@@ -71,13 +83,13 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
                                                 aligned_markers[genome_id].items()))
 
     if prefix is None:
-        prefix = "111_genes"
+        prefix = "genome_tree_data"
     gg_fh = open(os.path.join(directory, prefix + ".greengenes"), 'wb')
     fasta_fh = open(os.path.join(directory, prefix + ".fasta"), 'wb')
     for genome_id in aligned_markers.keys():                    
         aligned_seq = '';
-        for marker_id, phylosift_id, size in chosen_markers:
-            if marker_id in aligned_markers[genome_id]['markers']:
+        for marker_id, size in chosen_markers:
+            if aligned_markers[genome_id]['markers'][marker_id]:
                 aligned_seq += aligned_markers[genome_id]['markers'][marker_id]
             else:
                 aligned_seq += size * '-'            
@@ -93,6 +105,10 @@ def MakeTreeData(GenomeDatabase, list_of_genome_ids, directory, prefix=None, **k
         if len(extant) != 0:
             internal_tax = extant[0].text
             
+        # Bacteria only
+        if internal_tax[:len('d__Bacteria')] != 'd__Bacteria':
+            continue
+        
         extant = root.findall('internal/core_list')
         core_list_status = ''
         if len(extant) != 0:
