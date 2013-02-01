@@ -48,11 +48,34 @@ class GenomeDatabase(object):
         self.conn = None
         self.currentUser = None
         self.lastErrorMessage = None
+        self.debugMode = False
 
 #-------- General Functions
     
     def ReportError(self, msg):
         self.lastErrorMessage = str(msg) + "\n"
+        
+    def SetDebugMode(self, debug_mode):
+        self.debugMode = debug_mode
+        
+    def AddLargeObject(self, filename):
+        
+        lobject = self.conn.lobject(0, 'w', 0, filename)
+    
+        lobject.close()
+        
+        self.conn.commit()
+        
+        return lobject.oid
+    
+    def DeleteLargeObject(self, oid):
+        
+        lobject = self.conn.lobject(oid, 'w')
+            
+        lobject.unlink()
+        
+        self.conn.commit()
+        
         
 #-------- Database Connection Management
 
@@ -509,7 +532,7 @@ class GenomeDatabase(object):
             
             return genome_id
 
-    def SearchGenomes(self, name=None, description=None, genome_list_id=None, owner_id=None):
+    def SearchGenomes(self, tree_id=None, name=None, description=None, genome_list_id=None, owner_id=None):
         
         cur = self.conn.cursor()
         
@@ -519,6 +542,9 @@ class GenomeDatabase(object):
        
         search_terms = list()
         query_params = list()
+        if tree_id is not None:
+            search_terms.append("genomes.tree_id = %s")
+            query_params.append(tree_id)
         if owner_id is not None:
             search_terms.append("genomes.owner_id = %s")
             query_params.append(owner_id)
@@ -656,7 +682,10 @@ class GenomeDatabase(object):
                 continue
             result_dict[marker_id] = seqline
         
-        subprocess.call(["rm", "-rf", result_dir])
+        if self.debugMode:
+            print result_dir
+        else:
+            subprocess.call(["rm", "-rf", result_dir])
         return result_dict
     
     # THIS NEEDS TO BE UPDATED TO CONFORM TO THE NEW MARKER CONFIGURATION (i.e Marker Sets).

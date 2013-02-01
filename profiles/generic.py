@@ -23,6 +23,7 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
                 "FROM aligned_markers, marker_set_contents " +
                 "WHERE set_id = %s " +
                 "AND aligned_markers.marker_id =  marker_set_contents.marker_id " +
+                "AND sequence IS NOT NULL " +
                 "GROUP BY genome_id", (marker_set_id,))
     
     genome_gene_counts = dict(cur.fetchall())
@@ -53,6 +54,7 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
         cur.execute("SELECT aligned_markers.marker_id, sequence "
                     "FROM aligned_markers, marker_set_contents "+
                     "WHERE marker_set_contents.marker_id = aligned_markers.marker_id " +
+                    "AND sequence IS NOT NULL " +
                     "AND genome_id = %s " +
                     "AND set_id = %s ", (genome_id, marker_set_id))
         if (cur.rowcount == 0):
@@ -77,7 +79,7 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
     for genome_id in aligned_markers.keys():                    
         aligned_seq = '';
         for marker_id, size in chosen_markers:
-            if aligned_markers[genome_id]['markers'][marker_id]:
+            if marker_id in aligned_markers[genome_id]['markers']:
                 aligned_seq += aligned_markers[genome_id]['markers'][marker_id]
             else:
                 aligned_seq += size * '-'            

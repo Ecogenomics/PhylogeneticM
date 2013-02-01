@@ -173,7 +173,7 @@ def SearchGenomes(GenomeDatabase, args):
         if user_id is None:
             ErrorReport(GenomeDatabase.lastErrorMessage)
             return None
-    return_array = GenomeDatabase.SearchGenomes(args.name, args.description,
+    return_array = GenomeDatabase.SearchGenomes(args.tree_id, args.name, args.description,
                                                 args.list_id, user_id)
     
     if not return_array:
@@ -361,7 +361,9 @@ if __name__ == '__main__':
     parser.add_argument('-p', dest='password_filename',
                         help='A File containing password for the user'),
     parser.add_argument('--dev', dest='dev', action='store_true',
-                        help='Run in developer mode')
+                        help='Connect to the developer database')
+    parser.add_argument('--debug', dest='debug', action='store_true',
+                        help='Run in debug mode')
     
     subparsers = parser.add_subparsers(help='Sub-Command Help', dest='subparser_name')
     
@@ -464,6 +466,8 @@ if __name__ == '__main__':
                                        help='Search for genomes containing this name')
     parser_searchgenome.add_argument('--description', dest = 'description',
                                        help='Search for genomes containing this description')
+    parser_searchgenome.add_argument('--tree_id', dest = 'tree_id',
+                                       help='Show genome with this tree_id')
     parser_searchgenome.add_argument('--list_id', dest = 'list_id',
                                        help='Show all genomes in this list')
     parser_searchgenome.add_argument('--owner', dest = 'owner', nargs='?', default='-1',
@@ -634,6 +638,8 @@ if __name__ == '__main__':
     else:
         GenomeDatabase.MakePostgresConnection()
         
+    if args.debug:
+        GenomeDatabase.SetDebugMode(True)
     # Login
     
     if args.password_filename:
