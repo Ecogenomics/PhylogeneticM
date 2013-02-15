@@ -1,3 +1,11 @@
+#####################################################
+# genome_tree_backend.py
+# 
+# PostgreSQL interface for PhylogeneticM
+#
+# Documentation written in NaturalDocs format
+#####################################################
+
 import sys
 import os
 import re
@@ -23,41 +31,82 @@ from metachecka2000.resultsParser import Mc2kHmmerResultsParser as QaParser
 
 # Import Genome Tree Database modules
 import profiles
+#  Section: PhylogeneticM API
 
-#---- User Class
-
+#  Class: User
+#  A class that represents a user of the database
 class User(object):
+    
+    # Constuctor: User
+    # Initialises the object
     def __init__(self, userId, userName, typeId):
         self.userId = userId
         self.userName = userName
         self.typeId = typeId
     
+    # Function: getUserName
+    # Returns the username of the user
+    #
+    # Returns:
+    #   The username of the User as a string
     def getUserName(self):
         return self.userName
     
+    # Function: getUserId
+    # Returns the id of the user (as stored in PostgreSQL database)
     def getUserId(self):
         return self.userId
     
+    # Function: getTypeId
+    # Returns the type id of this user
     def getTypeId(self):
         return self.typeId
 
-#--- Main Genome Database Object
-
+#  Class: GenomeDatabase
+#  A class that represents a user of the database
 class GenomeDatabase(object):
     def __init__(self):
         self.conn = None
         self.currentUser = None
         self.lastErrorMessage = None
         self.debugMode = False
-
-#-------- General Functions
     
+
+    #
+    # Group: General Functions
+    #
+    # Function: ReportError
+    # Sets the last error message of the database.
+    #
+    # Parameters:
+    #     msg - The message to set.
+    #
+    # Returns:
+    #   No return value.
     def ReportError(self, msg):
         self.lastErrorMessage = str(msg) + "\n"
-        
+    
+    
+    # Function: SetDebugMode
+    # Sets the debug mode of the database (at the moment its either on (non-zero) or off (zero))
+    #
+    # Parameters:
+    #     debug_mode - The debug mode to set.
+    #
+    # Returns:
+    #   No return value.
     def SetDebugMode(self, debug_mode):
         self.debugMode = debug_mode
-        
+    
+    
+    # Function: AddLargeObject
+    # Adds a PostgreSQL large object to the database.
+    #
+    # Parameters:
+    #     filename - The path to the file to add.
+    #
+    # Returns:
+    #   The object id (oid) of the added object.
     def AddLargeObject(self, filename):
         
         lobject = self.conn.lobject(0, 'w', 0, filename)
@@ -68,6 +117,14 @@ class GenomeDatabase(object):
         
         return lobject.oid
     
+    # Function: DeleteLargeObject
+    # Deletes a PostgreSQL large object from the database.
+    #
+    # Parameters:
+    #     oid - The object id of the large object to delete.
+    #
+    # Returns:
+    #   No return value.
     def DeleteLargeObject(self, oid):
         
         lobject = self.conn.lobject(oid, 'w')
@@ -77,18 +134,38 @@ class GenomeDatabase(object):
         self.conn.commit()
         
         
-#-------- Database Connection Management
+    #
+    # Group: Database Connection Functions
+    #
 
+    # Function: MakePostgresConnection
+    # Opens a connection to the PostgreSQL database
+    #
+    # Parameters:
+    #     port - The port on which the postgres server is listening (default: None (which will default to the standard PostgreSQL server port))
+    #
+    # Returns:
+    #   No return value.
     def MakePostgresConnection(self, port=None):
         conn_string = "dbname=genome_tree user=uqaskars host=/tmp/"
         if port is not None:
             conn_string += " port=" + str(port)
         self.conn = pg.connect(conn_string)
-        
+    
+    # Function: ClosePostgresConnection
+    # Closes an open connection to the PostgreSQL database.
+    #
+    # Returns:
+    #   No return value.
     def ClosePostgresConnection(self):
         self.conn.close()
         self.conn = None
-    
+
+    # Function: IsPostgresConnectionActive
+    # Check if the connection to the PostgreSQL database is active.
+    #
+    # Returns:
+    #   True if connection is active, False otherwise
     def IsPostgresConnectionActive(self):
         if self.conn is not None:
             cur = self.conn.cursor()
@@ -101,18 +178,55 @@ class GenomeDatabase(object):
         else:
             return False
 
-#-------- User Login Management
+
+    #
+    # Group: Password/User Functions
+    #
     
+    # Function: GenerateRandomPassword
+    # Generates a random password (plain-text)
+    #
+    # Parameters:
+    #     length - The length of the generated password (default: 8)
+    #
+    # Returns:
+    #   True if connection is active, False otherwise
     def GenerateRandomPassword(self, length=8):
         chars = string.ascii_uppercase + string.digits
         return ''.join(random.choice(chars) for x in range(8))
         
+    # Function: GenerateHashedPassword
+    # Hash a password using py-bcrypt
+    #
+    # Parameters:
+    #     password - The plain text password to hash
+    #
+    # Returns:
+    #   A string of the py-bcrypt crypted password
     def GenerateHashedPassword(self, password):
         return bcrypt.hashpw(password, bcrypt.gensalt())
-    
+  
+    # Function: CheckPlainTextPassword
+    # Check a plain-text password against a hashed password.
+    #
+    # Parameters:
+    #     password - The plain text password to check
+    #     hashed_password - The stored hashed password to check against.
+    #
+    # Returns:
+    #   True if the plain-text password is correct, False otherwise
     def CheckPlainTextPassword(self, password, hashed_password):
         return bcrypt.hashpw(password, hashed_password) == hashed_password
-    
+
+    # Function: UserLogin
+    # Log a user into the database (make the user the current user of the database).
+    #
+    # Parameters:
+    #     username - The username of the user to login
+    #     password - The password of the user
+    #
+    # Returns:
+    #   Returns a User calls object on success (and sets the GenomeDatabase current user), None otherwise.
     def UserLogin(self, username, password):
         if not self.IsPostgresConnectionActive():
             self.ReportError("Unable to establish database connection")
@@ -127,61 +241,23 @@ class GenomeDatabase(object):
             (userid, hashed, type_id) = result
             if self.CheckPlainTextPassword(password, hashed):
                 self.currentUser = User(result[0], username, result[2])
-                return User
+                return self.currentUser
             else:
                 self.ReportError("Incorrect password")
         else:
             self.ReportError("User not found")
         return None
 
-#-------- User Management
-
-    def CheckForCurrentUserHigherPrivileges(self, user_id):
-        """
-        Checks if the current user has higher privileges that the specified user_id.
-        """
-        cur = self.conn.cursor()
-        cur.execute("SELECT type_id FROM users WHERE id = %s", (user_id,))
-        result = cur.fetchone()
-        
-        if not result:
-            self.ReportError("User not found.")
-            return None
-        
-        (type_id,) = result
-        if self.currentUser.getTypeId() < type_id:
-            return True
-        else:
-            return False
-    
-    def GetUserIdFromUsername(self, username):
-        cur = self.conn.cursor()
-        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
-        result = cur.fetchone()
-        
-        if not result:
-            self.ReportError("Username not found.")
-            return None
-        
-        (user_id,) = result
-        return user_id
-    
-    def CheckIfRootUser(self):
-        cur = self.conn.cursor()
-        
-        cur.execute("SELECT id FROM user_types WHERE name = %s", ('root',));
-        
-        result = cur.fetchone()
-        if not result:
-            raise Exception('GenomeTreeDatabaseException: No Root User in Database!')
-            return False   
-        
-        (root_id,) = result
-        
-        if self.currentUser.getTypeId() != root_id:
-            return False
-        return True
-
+    # Function: CreateUser
+    # Create a new user for the database.
+    #
+    # Parameters:
+    #     username - The username of the user to login
+    #     password - The password of the user (plain-text)
+    #     userTypeId - The id of the type of user to create
+    #
+    # Returns:
+    #   True on success, False otherwise.
     def CreateUser(self, username, password, userTypeId):
         
         if not self.IsPostgresConnectionActive():
@@ -206,7 +282,17 @@ class GenomeDatabase(object):
         
         return True
     
-    def ModifyUser(self, user_id, password=None, userTypeId=None):
+    # Function: ModifyUser
+    # Modify the details of a user in the database.
+    #
+    # Parameters:
+    #     user_id - The id of the user to change.
+    #     newPassword - The new password (plain-text) of the user. 
+    #     userTypeId - The id of the type of user to promote/demote this user to.
+    #
+    # Returns:
+    #   True on success, False otherwise.
+    def ModifyUser(self, user_id, newPassword=None, userTypeId=None):
         
         if not self.IsPostgresConnectionActive():
             self.ReportError("Unable to establish database connection.")
@@ -239,13 +325,13 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find user id: " + user_id)
             return False            
         
-        if password is not None:
-            if not password:
+        if newPassword is not None:
+            if not newPassword:
                 self.ReportError("You must specify a non-blank password.")
                 return False
             else:
                 cur.execute("UPDATE users SET password = %s WHERE id = %s", 
-                    (self.GenerateHashedPassword(password), user_id))
+                    (self.GenerateHashedPassword(newPassword), user_id))
         
         if userTypeId is not None:
             cur.execute("UPDATE users SET type_id = %s WHERE id = %s", 
@@ -254,9 +340,95 @@ class GenomeDatabase(object):
         self.conn.commit()
         return True
     
-#-------- Genome List Management
+    # Function: GetUserIdFromUsername
+    # Get a user id from a given username.
+    #
+    # Parameters:
+    #     username - The username of the user to get an id for.
+    #
+    # Returns:
+    #     The id of the user if successful, None on failure.
+    def GetUserIdFromUsername(self, username):
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM users WHERE username = %s", (username,))
+        result = cur.fetchone()
+        
+        if not result:
+            self.ReportError("Username not found.")
+            return None
+        
+        (user_id,) = result
+        return user_id
+  
+    #
+    # Group: User Permission Functions
+    #
     
-    def CreateGenomeList(self, genome_list, name, description, owner_id, private):
+    # Function: CheckForCurrentUserHigherPrivileges
+    # Checks if the current user is a higher user type than the specified user.
+    #
+    # Parameters:
+    #     user_id - The id of the user to compare user types to.
+    #
+    # Returns:
+    #     True if the current user is a high user type than the user specified. False otherwise.
+    def CheckForCurrentUserHigherPrivileges(self, user_id):
+        """
+        Checks if the current user has higher privileges that the specified user_id.
+        """
+        cur = self.conn.cursor()
+        cur.execute("SELECT type_id FROM users WHERE id = %s", (user_id,))
+        result = cur.fetchone()
+        
+        if not result:
+            self.ReportError("User not found.")
+            return None
+        
+        (type_id,) = result
+        if self.currentUser.getTypeId() < type_id:
+            return True
+        else:
+            return False
+    
+
+    # Function: CheckIfRootUser
+    # Get if the current user is root.
+    #
+    # Returns:
+    #     True if current user is root, False otherwise.
+    def CheckIfRootUser(self):
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id FROM user_types WHERE name = %s", ('root',));
+        
+        result = cur.fetchone()
+        if not result:
+            raise Exception('GenomeTreeDatabaseException: No Root User in Database!')
+            return False   
+        
+        (root_id,) = result
+        
+        if self.currentUser.getTypeId() != root_id:
+            return False
+        return True
+
+    #
+    # Group: Genome List Management/Query Functions
+    #
+    
+    # Function: CreateGenomeList
+    # Creates a new genome list in the database
+    #
+    # Parameters:
+    #     genome_id_list - A list of genome ids to add to the new list.
+    #     name - The name of the newly created list.
+    #     description - A description of the newly created list.
+    #     owner_id - The id of the user who will own this list.
+    #     private - Bool that denotes whether this list is public or private.
+    #
+    # Returns:
+    #    The genome list id of the newly created list.
+    def CreateGenomeList(self, genome_id_list, name, description, owner_id, private):
         
         cur = self.conn.cursor()
         
@@ -265,12 +437,24 @@ class GenomeDatabase(object):
         (genome_list_id, ) = cur.fetchone()
         
         query = "INSERT INTO genome_list_contents (list_id, genome_id) VALUES (%s, %s)"
-        cur.executemany(query, [(genome_list_id, x) for x in genome_list])
+        cur.executemany(query, [(genome_list_id, x) for x in genome_id_list])
         
         self.conn.commit()
         
         return genome_list_id
     
+    # Function: CloneGenomeList
+    # Creates a new genome list by cloning an existing genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to clone.
+    #     name - The name of the cloned genome list.
+    #     description - A description of the cloned genome list.
+    #     owner_id - The id of the user who will own the cloned list.
+    #     private - Bool that denotes whether the cloned list is public or private.
+    #
+    # Returns:
+    #    The genome list id of the cloned list.
     def CloneGenomeList(self, genome_list_id, name, description, owner_id, private):
         
         cur = self.conn.cursor()
@@ -281,9 +465,21 @@ class GenomeDatabase(object):
         
         return self.CreateGenomeList(genome_id_list, name, description, owner_id, private)
     
-    
+    # Function: ModifyGenomeList
+    # Modify the details or contents of an existing genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to modify.
+    #     name - If not None, update the genome list's name to this.
+    #     description - If not None, update the genome list's description to this.
+    #     genome_ids - List of genome id that will modify the contents of the genome list (see operation parameter)
+    #     operation - Perform this operation on the genome ids given in the genome_ids parameter with respect to the genome list (options: add, remove)
+    #     private - If not True, change if this list is private.
+    #
+    # Returns:
+    #   True on success, False otherwise.
     def ModifyGenomeList(self, genome_list_id, name=None, description=None, genome_ids=None,
-                         operation=None, public=None):
+                         operation=None, private=None):
         
         cur = self.conn.cursor()
         
@@ -310,9 +506,9 @@ class GenomeDatabase(object):
             query = "UPDATE genome_lists SET description = %s WHERE id = %s";
             cur.execute(query, (description, genome_list_id))
             
-        if public is not None:
+        if private is not None:
             query = "UPDATE genome_lists SET private = %s WHERE id = %s";
-            cur.execute(query, (not(public), genome_list_id))
+            cur.execute(query, (private, genome_list_id))
             
         temp_table_name = "TEMP" + str(int(time.time()))
         
@@ -340,6 +536,16 @@ class GenomeDatabase(object):
         self.conn.commit()
         return True
     
+    # Function: DeleteGenomeList
+    # Checks if the current user can delete genome list, and if both allowed and requested, carry out this task.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to delete.
+    #     execute - If False, simply check if the list can be deleted. If True, carry out the check and then delete the list (if permitted).
+    #
+    # Returns:
+    #   If execute is False, returns True if the list can be deleted, False otherwise.
+    #   If execute is True, returns True on successful deletion, False otherwise.
     def DeleteGenomeList(self, genome_list_id, execute):
         """
             Delete a genome list by providing a genome list id. The second parameter, execute,
@@ -375,41 +581,14 @@ class GenomeDatabase(object):
         
         return True
 
-    def CheckGenomeList(self):
-        
-        conn = GetTopParent(self).conn
-        cur = GetTopParent(self).cur
-        
-        # Remove empty rows
-        insert_params = [(x,) for x in tree_ids if x]
-    
-        cur.execute("CREATE TEMP TABLE %s (genome_id text)" % (temp_table_name,) )
-        cur.executemany("INSERT INTO %s (genome_id) VALUES (%%s)" % (temp_table_name,), insert_params)
-        conn.commit()
-        
-        if self.DatabaseIDRadioButton.GetValue():
-            source_id = self.sources[self.SourceDropDown.GetSelection()][0]
-            query = "SELECT id FROM genomes WHERE genome_source_id = %%s AND id_at_source IN (SELECT genome_id from %s)" % (temp_table_name,)
-            cur.execute(query, (source_id,))
-            genome_ids = [x[0] for x in cur.fetchall()]
-            
-            query = "SELECT genome_id from %s EXCEPT SELECT id_at_source from genomes WHERE genome_source_id = %%s" % (temp_table_name,)
-            cur.execute(query, (source_id,))
-            missing_ids = [x[0] for x in cur.fetchall()]
-            
-        else:
-            cur.execute("SELECT id FROM genomes WHERE tree_id IN (SELECT genome_id from %s)" % (temp_table_name,))
-            genome_ids = [x[0] for x in cur.fetchall()]
-            
-            cur.execute("SELECT genome_id from %s EXCEPT SELECT tree_id from genomes" % (temp_table_name,))
-            missing_ids = [x[0] for x in cur.fetchall()]
-            
-        if len(missing_ids) > 0:
-            ErrorLog("Warning: The following entered IDs were not found in the " +
-                     "database and have been excluded from the list:\n %s \n" % ("\n".join(missing_ids),))
-
-        return genome_ids
-
+    # Function: GetGenomeIdListFromGenomeListId
+    # Given a genome list id, return all the ids of the genomes contained within that genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list whose contents needs to be retrieved.
+    #
+    # Returns:
+    #   A list of all the genome ids contained within the specified genome list, None on failure.
     def GetGenomeIdListFromGenomeListId(self, genome_list_id):
         
         cur = self.conn.cursor()
@@ -429,10 +608,19 @@ class GenomeDatabase(object):
         result = cur.fetchall()
         
         return [genome_id for (genome_id,) in result]
-            
-    def GetGenomeLists(self, owner_id=None):
+         
+    # Function: GetVisibleGenomeLists
+    # Get all genome list owned by the specified owner which the current user is allowed to see.
+    #
+    # Parameters:
+    #     owner_id - Get visible genome lists owned by this user with this id. If not specified, get all visible lists.
+    #
+    # Returns:
+    #   A list containing a tuple for each visible genome list. The tuple contains the genome list id, genome list name, genome list description,
+    # and username of the owner of the list (id, name, description, username).
+    def GetVisibleGenomeLists(self, owner_id=None):
         """
-        Get all genomes list owned by owner_id which the current user is allowed
+        Get all genome list owned by owner_id which the current user is allowed
         to see. If owner_id is None, return all visible genome lists for the
         current user.
         """
@@ -459,6 +647,124 @@ class GenomeDatabase(object):
 
 #-------- Genome Management
     
+    #
+    # Group: Genome Management Functions
+    #
+    
+    def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id=None, id_at_source=None):
+        
+        cur = self.conn.cursor()
+        
+        match = re.search('^[A-Z]$', id_prefix)
+        if not match:
+            self.ReportError("Tree ID prefixes must be in the range A-Z")
+            return None
+        
+        try:
+            fasta_fh = open(fasta_file, "rb")
+        except:
+            self.ReportError("Cannot open Fasta file: " + fasta_file)
+            return None
+        fasta_fh.close()
+        
+        if not self.currentUser:
+            self.ReportError("You need to be logged in to add a FASTA file.")
+            return None
+        
+        query = "SELECT tree_id FROM genomes WHERE tree_id like %s order by tree_id desc;"
+        cur.execute(query, (id_prefix + '%',))
+        last_id = None
+        for (tree_id,) in cur:
+            last_id = tree_id
+            break
+        if (last_id is None):
+            new_id = id_prefix + "00000001"
+        else:
+            new_id = id_prefix + "%08.i" % (int(last_id[1:]) + 1)
+        
+        if source_id is None:
+            cur.execute("SELECT id FROM genome_sources WHERE name = 'user'")
+            result = cur.fetchone()
+            if not result:
+                self.ReportError("Could not find 'user' genome source. Possible database corruption.")
+                return None
+            (source_id,) = result
+            if id_at_source is not None:
+                self.ReportError("You cannot specify an ID at an unspecified genome source.")
+                return None
+        
+        if id_at_source is None:
+            id_at_source = new_id
+
+        added = time.mktime(time.localtime()) # Seconds since epoch
+
+        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data><internal><date_added>%i</date_added></internal></data>\')' % (added)
+        cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
+            + "VALUES (%s, %s, %s, " + initial_xml_string + ", %s, %s, %s) "
+            + "RETURNING id" , (new_id, name, desc, self.currentUser.getUserId(),
+                                source_id, id_at_source))
+        
+        genome_id = cur.fetchone()[0]
+        
+        fasta_oid = self.AddLargeObject(fasta_file)
+        
+        cur.execute("UPDATE genomes SET genomic_fasta = %s WHERE id = %s",
+                    (ffasta_oid, genome_id))
+        
+        fasta_lobject.close()
+        
+        self.conn.commit()
+        
+        return genome_id
+    
+    def DeleteGenome(self, genome_id):
+        
+        cur = self.conn.cursor()
+        
+        # Check that you are allowed to delete this genome
+        
+        cur.execute("SELECT owner_id " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        result = cur.fetchone()
+        
+        if result is None:
+            return None
+        (owner_id,) = result
+        
+        if (not owner_id == self.currentUser.getUserId()) and not self.CheckForCurrentUserHigherPrivileges(owner_id):
+            self.lastErrorMessage = "Insufficient priviliges"
+            return None
+        
+        # Delete the fasta object
+        
+        cur.execute("SELECT genomic_fasta " +
+            "FROM genomes " +
+            "WHERE id = %s ", [genome_id])
+        
+        result = cur.fetchone()
+        
+        if result is not None:
+            (genomic_oid,) = result
+            
+            self.DeleteLargeObject(genomic_oid)
+        
+        # Delete the DB entries object
+        
+        cur.execute("DELETE from genome_list_contents " +
+                    "WHERE genome_id = %s", [genome_id])
+        
+        cur.execute("DELETE from aligned_markers " +
+                    "WHERE genome_id = %s", [genome_id])
+        
+        cur.execute("DELETE from genomes " +
+                    "WHERE id = %s", [genome_id])
+        
+        self.conn.commit()
+        
+        return True
+
     def CheckGenomeExists(self, genome_id):
         
         cur = self.conn.cursor()
@@ -536,7 +842,7 @@ class GenomeDatabase(object):
         
         cur = self.conn.cursor()
         
-        if genome_list_id is not None and genome_list_id in self.GetGenomeLists():
+        if genome_list_id is not None and genome_list_id in self.GetVisibleGenomeLists():
             print "No Genomes Found"
             return None
        
@@ -584,7 +890,213 @@ class GenomeDatabase(object):
             return_array.append((tree_id, name, username, date_added, description))
         
         return return_array
-       
+
+    def ExportGenomicFasta(self, genome_id, destfile=None):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT genomic_fasta " +
+                    "FROM genomes " +
+                    "WHERE id = %s ", [genome_id])
+        result = cur.fetchone()
+        
+        if result is None:
+            return None
+        (genomic_oid,) = result
+        
+        fasta_lobject = self.conn.lobject(genomic_oid, 'r')
+        
+        if destfile is None:
+            return fasta_lobject.read()
+        else:
+            fasta_lobject.export(destfile)
+        
+        return True
+    
+#-------- Marker Management 
+    
+    def GetMarkerIdListFromMarkerSetId(self, marker_set_id):
+        
+        cur = self.conn.cursor()
+                
+        cur.execute("SELECT marker_id " +
+                    "FROM marker_set_contents " +
+                    "WHERE set_id = %s ", (marker_set_id,))
+        
+        marker_id_list = [x[0] for x in cur.fetchall()]
+        
+        return marker_id_list
+    
+    def AddMarkers(self, hmm_file, database_id):
+         
+        cur = self.conn.cursor()
+        
+        if not self.CheckIfRootUser():
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        try:
+            mp = HmmModelParser(hmm_file)
+            added_oids = list()
+            for model in mp.parse():
+                splitdate = model.date.split()
+                postgres_date = "%s %s" % ("-".join([splitdate[1], splitdate[2], splitdate[4]]), splitdate[3])
+        
+                try:
+                    model.acc
+                except AttributeError:
+                    model.acc = model.name
+                
+                try:
+                    model.desc
+                except AttributeError:
+                    model.desc = model.name
+                
+                tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
+                tmpoutfile.write(str(model))
+                tmpoutfile.close()
+            
+                cur.execute("INSERT into markers (database_specific_id, name, size, database_id, timestamp) "+
+                            "VALUES (%s, %s, %s, %s, %s) "+
+                            "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
+                
+                marker_id = cur.fetchone()[0]
+            
+                marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
+            
+                cur.execute("UPDATE markers SET hmm = %s WHERE id = %s",
+                        (marker_lobject.oid, marker_id))
+                
+                added_oids.append(marker_lobject.oid)
+            
+                marker_lobject.close()
+        
+            self.conn.commit()
+            
+        except: # cannot open HMM file
+            self.ReportError('Failed to add markers')
+            raise
+        finally:
+            os.remove(tmpoutfile.name)
+            for oid in added_oids:
+                marker_lobject = self.conn.lobject(oid, 'w')
+                marker_lobject.unlink()
+        
+        return True
+    
+    def DeleteMarker(self, marker_id):
+        
+        cur = self.conn.cursor()
+        
+        # Check that you are allowed to delete this genome
+        if not self.CheckIfRootUser():
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        # Delete the marker object
+        
+        cur.execute("SELECT hmm " +
+            "FROM markers " +
+            "WHERE id = %s ", [marker_id])
+        
+        result = cur.fetchone()
+        
+        if result is not None:
+            (marker_oid,) = result
+            
+            marker_lobject = self.conn.lobject(marker_oid, 'w')
+            
+            marker_lobject.unlink()
+        
+        # Delete the DB entries object
+        
+        cur.execute("DELETE from marker_set_contents " +
+                    "WHERE marker_id = %s", [marker_id])
+        
+        cur.execute("DELETE from aligned_markers " +
+                    "WHERE marker_id = %s", [marker_id])
+        
+        cur.execute("DELETE from markers " +
+                    "WHERE id = %s", [marker_id])
+        
+        self.conn.commit()
+        
+        return True
+        
+    def ExportMarker(self, marker_id, destfile=None):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT hmm " +
+                    "FROM markers " +
+                    "WHERE id = %s ", [marker_id])
+        
+        result = cur.fetchone()
+        
+        if result is None:
+            return None
+        (hmm_oid,) = result
+        
+        hmm_lobject = self.conn.lobject(hmm_oid, 'r')
+        
+        if destfile is None:
+            return hmm_lobject.read()
+        else:
+            hmm_lobject.export(destfile)
+        
+        return True
+     
+    def AddMarkerSet(self, marker_list, name, description, owner_id, private=True):
+        
+        cur = self.conn.cursor()
+        
+        query = "INSERT INTO marker_sets (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
+        cur.execute(query, (name, description, owner_id, private))
+        (marker_list_id, ) = cur.fetchone()
+        
+        query = "INSERT INTO marker_set_contents (set_id, marker_id) VALUES (%s, %s)"
+        cur.executemany(query, [(marker_list_id, x) for x in marker_list])
+        
+        self.conn.commit()
+        
+        return marker_list_id
+
+    # Function: GetVisibleMarkerSets
+    # Get all genome marker sets which the current user is allowed to see.
+    #
+    # Returns:
+    #   A list containing a tuple for each visible marker set. The tuple contains the marker set id, marker set name, marker set description,
+    # and username of the owner of the set (id, name, description, username).
+    def GetVisibleMarkerSets(self):
+        cur = self.conn.cursor()
+
+        cur.execute("SELECT set.id, set.name, set.description, username " +
+                    "FROM marker_sets as set, users " +
+                    "WHERE set.owner_id = users.id " +
+                    "AND (set.private = False " +
+                         "OR users.type_id > %s " +
+                         "OR set.owner_id = %s) " +
+                    "ORDER by set.id ", (self.currentUser.getTypeId(),
+                                        self.currentUser.getUserId()))
+        
+        
+        return cur.fetchall()
+        
+    def GetAlignedMarkersCountForGenomeFromMarkerSetId(self, marker_set_id):
+    
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT genome_id, count(aligned_markers.marker_id) "+
+                    "FROM aligned_markers, marker_set_contents " +
+                    "WHERE set_id = %s " +
+                    "AND aligned_markers.marker_id =  marker_set_contents.marker_id " +
+                    "AND sequence IS NOT NULL " +
+                    "GROUP BY genome_id", (marker_set_id,))
+        
+        return dict(cur.fetchall())
+    
+#-------- Marker Calculation
+
     def FindUncalculatedMarkersForGenomeId(self, genome_id, marker_id_list):
         
         cur = self.conn.cursor()
@@ -599,18 +1111,6 @@ class GenomeDatabase(object):
                 
         return uncalculated_marker_ids
     
-    def GetMarkerIdListFromMarkerSetId(self, marker_set_id):
-        
-        cur = self.conn.cursor()
-                
-        cur.execute("SELECT marker_id " +
-                    "FROM marker_set_contents " +
-                    "WHERE set_id = %s ", (marker_set_id,))
-        
-        marker_id_list = [x[0] for x in cur.fetchall()]
-        
-        return marker_id_list
-    
     def FindMarkers(self, fasta_file, marker_id_list):
         return self.FindMarkersEmboss(fasta_file, marker_id_list)
     
@@ -619,10 +1119,12 @@ class GenomeDatabase(object):
         
         # Lazy solution - split up into 10kb segments (offset by 5k) so that hmm_align only has to align 10kb max.
         fh = open(os.path.join(result_dir, "segmented_fasta.fa"), "wb")
+        seq_count = 0
         for (name, seq, qual) in readfq(open(fasta_file)):
+            seq_count += 1
             pos = 10000
             while True:
-                fh.write(">%i_%i_%s\n" % (pos - 10000, pos, name))
+                fh.write(">%i_%i_%i\n" % (pos - 10000, pos, seq_count))
                 fh.write(seq[pos-10000:pos] + "\n")
                 if len(seq) <= pos:
                     break
@@ -785,8 +1287,6 @@ class GenomeDatabase(object):
         
         os.unlink(destfile)
         
-        
-        
     def RecalculateAllMarkers(self):
         
         if not self.CheckIfRootUser():
@@ -799,147 +1299,7 @@ class GenomeDatabase(object):
             tree_id = genome_array[0]
             genome_id = self.GetGenomeId(tree_id)
             self.RecalculateMarkersForGenome(genome_id)
-
-    
-    
-    def AddMarkers(self, hmm_file, database_id):
-         
-        cur = self.conn.cursor()
-        
-        if not self.CheckIfRootUser():
-            self.lastErrorMessage = "Only root can do that."
-            return False
-        
-        try:
-            mp = HmmModelParser(hmm_file)
-            added_oids = list()
-            for model in mp.parse():
-                splitdate = model.date.split()
-                postgres_date = "%s %s" % ("-".join([splitdate[1], splitdate[2], splitdate[4]]), splitdate[3])
-        
-                try:
-                    model.acc
-                except AttributeError:
-                    model.acc = model.name
-                
-                try:
-                    model.desc
-                except AttributeError:
-                    model.desc = model.name
-                
-                tmpoutfile = tempfile.NamedTemporaryFile(delete=False)
-                tmpoutfile.write(str(model))
-                tmpoutfile.close()
-            
-                cur.execute("INSERT into markers (database_specific_id, name, size, database_id, timestamp) "+
-                            "VALUES (%s, %s, %s, %s, %s) "+
-                            "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
-                
-                marker_id = cur.fetchone()[0]
-            
-                marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
-            
-                cur.execute("UPDATE markers SET hmm = %s WHERE id = %s",
-                        (marker_lobject.oid, marker_id))
-                
-                added_oids.append(marker_lobject.oid)
-            
-                marker_lobject.close()
-        
-            self.conn.commit()
-            
-        except: # cannot open HMM file
-            self.ReportError('Failed to add markers')
-            raise
-        finally:
-            os.remove(tmpoutfile.name)
-            for oid in added_oids:
-                marker_lobject = self.conn.lobject(oid, 'w')
-                marker_lobject.unlink()
-        
-        return True
-    
-        
-    def DeleteMarker(self, marker_id):
-        
-        cur = self.conn.cursor()
-        
-        # Check that you are allowed to delete this genome
-        if not self.CheckIfRootUser():
-            self.lastErrorMessage = "Only root can do that."
-            return False
-        
-        # Delete the marker object
-        
-        cur.execute("SELECT hmm " +
-            "FROM markers " +
-            "WHERE id = %s ", [marker_id])
-        
-        result = cur.fetchone()
-        
-        if result is not None:
-            (marker_oid,) = result
-            
-            marker_lobject = self.conn.lobject(marker_oid, 'w')
-            
-            marker_lobject.unlink()
-        
-        # Delete the DB entries object
-        
-        cur.execute("DELETE from marker_set_contents " +
-                    "WHERE marker_id = %s", [marker_id])
-        
-        cur.execute("DELETE from aligned_markers " +
-                    "WHERE marker_id = %s", [marker_id])
-        
-        cur.execute("DELETE from markers " +
-                    "WHERE id = %s", [marker_id])
-        
-        self.conn.commit()
-        
-        return True
-        
-    
-    def ExportMarker(self, marker_id, destfile=None):
-        
-        cur = self.conn.cursor()
-        
-        cur.execute("SELECT hmm " +
-                    "FROM markers " +
-                    "WHERE id = %s ", [marker_id])
-        
-        result = cur.fetchone()
-        
-        if result is None:
-            return None
-        (hmm_oid,) = result
-        
-        hmm_lobject = self.conn.lobject(hmm_oid, 'r')
-        
-        if destfile is None:
-            return hmm_lobject.read()
-        else:
-            hmm_lobject.export(destfile)
-        
-        return True
-    
-    
-    def AddMarkerSet(self, marker_list, name, description, owner_id, private=True):
-        
-        cur = self.conn.cursor()
-        
-        query = "INSERT INTO marker_sets (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
-        cur.execute(query, (name, description, owner_id, private))
-        (marker_list_id, ) = cur.fetchone()
-        
-        query = "INSERT INTO marker_set_contents (set_id, marker_id) VALUES (%s, %s)"
-        cur.executemany(query, [(marker_list_id, x) for x in marker_list])
-        
-        self.conn.commit()
-        
-        return marker_list_id
-        
-        
+  
 #-------- Metadata Managements
     
     def AddCustomMetadata(self, xml_path, data_dict):
@@ -1046,10 +1406,10 @@ class GenomeDatabase(object):
     def ReturnKnownProfiles(self):
         return profiles.profiles.keys()
 
-    def MakeTreeData(self, marker_set_id, core_lists, list_of_genome_ids, profile, directory, prefix=None):    
+    def MakeTreeData(self, marker_set_id, core_lists, list_of_genome_ids, profile, directory, prefix=None, config_dict=None):    
        
-        cur = self.conn.cursor()
-        
+        cur = self.conn.cursor()       
+    
         if profile is None:
             profile = profiles.ReturnDefaultProfileName()
         if profile not in profiles.profiles:
@@ -1083,150 +1443,13 @@ class GenomeDatabase(object):
                 print uncalculated
                 print "Markers not calculated for %s, calculating now...\n" % (self.GetGenomeInfo(genome_id)[0],)
                 self.RecalculateMarkersForGenome(genome_id, uncalculated)
-          
+        
         return profiles.profiles[profile].MakeTreeData(self, marker_set_id, list_of_genome_ids,
-                                                       directory, prefix)
+                                                       directory, prefix, config_dict)
 
-#-------- Fasta File Management
 
-    def ExportGenomicFasta(self, genome_id, destfile=None):
-        
-        cur = self.conn.cursor()
-        
-        cur.execute("SELECT genomic_fasta " +
-                    "FROM genomes " +
-                    "WHERE id = %s ", [genome_id])
-        result = cur.fetchone()
-        
-        if result is None:
-            return None
-        (genomic_oid,) = result
-        
-        fasta_lobject = self.conn.lobject(genomic_oid, 'r')
-        
-        if destfile is None:
-            return fasta_lobject.read()
-        else:
-            fasta_lobject.export(destfile)
-        
-        return True
-    
-    def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id=None, id_at_source=None):
-        
-        cur = self.conn.cursor()
-        
-        match = re.search('^[A-Z]$', id_prefix)
-        if not match:
-            self.ReportError("Tree ID prefixes must be in the range A-Z")
-            return None
-        
-        try:
-            fasta_fh = open(fasta_file, "rb")
-        except:
-            self.ReportError("Cannot open Fasta file: " + fasta_file)
-            return None
-        fasta_fh.close()
-        
-        if not self.currentUser:
-            self.ReportError("You need to be logged in to add a FASTA file.")
-            return None
-        
-        query = "SELECT tree_id FROM genomes WHERE tree_id like %s order by tree_id desc;"
-        cur.execute(query, (id_prefix + '%',))
-        last_id = None
-        for (tree_id,) in cur:
-            last_id = tree_id
-            break
-        if (last_id is None):
-            new_id = id_prefix + "00000001"
-        else:
-            new_id = id_prefix + "%08.i" % (int(last_id[1:]) + 1)
-        
-        if source_id is None:
-            cur.execute("SELECT id FROM genome_sources WHERE name = 'user'")
-            result = cur.fetchone()
-            if not result:
-                self.ReportError("Could not find 'user' genome source. Possible database corruption.")
-                return None
-            (source_id,) = result
-            if id_at_source is not None:
-                self.ReportError("You cannot specify an ID at an unspecified genome source.")
-                return None
-        
-        if id_at_source is None:
-            id_at_source = new_id
 
-        added = time.mktime(time.localtime()) # Seconds since epoch
-
-        initial_xml_string = 'XMLPARSE (DOCUMENT \'<?xml version="1.0"?><data><internal><date_added>%i</date_added></internal></data>\')' % (added)
-        cur.execute("INSERT INTO genomes (tree_id, name, description, metadata, owner_id, genome_source_id, id_at_source) "
-            + "VALUES (%s, %s, %s, " + initial_xml_string + ", %s, %s, %s) "
-            + "RETURNING id" , (new_id, name, desc, self.currentUser.getUserId(),
-                                source_id, id_at_source))
-        
-        genome_id = cur.fetchone()[0]
-        
-        fasta_lobject = self.conn.lobject(0, 'w', 0, fasta_file)
-        
-        cur.execute("UPDATE genomes SET genomic_fasta = %s WHERE id = %s",
-                    (fasta_lobject.oid, genome_id))
-        
-        fasta_lobject.close()
-        
-        self.conn.commit()
-        
-        return genome_id
-    
-    def DeleteGenome(self, genome_id):
-        
-        cur = self.conn.cursor()
-        
-        # Check that you are allowed to delete this genome
-        
-        cur.execute("SELECT owner_id " +
-            "FROM genomes " +
-            "WHERE id = %s ", [genome_id])
-        
-        result = cur.fetchone()
-        
-        if result is None:
-            return None
-        (owner_id,) = result
-        
-        if (not owner_id == self.currentUser.getUserId()) and not self.CheckForCurrentUserHigherPrivileges(owner_id):
-            self.lastErrorMessage = "Insufficient priviliges"
-            return None
-        
-        # Delete the fasta object
-        
-        cur.execute("SELECT genomic_fasta " +
-            "FROM genomes " +
-            "WHERE id = %s ", [genome_id])
-        
-        result = cur.fetchone()
-        
-        if result is not None:
-            (genomic_oid,) = result
-            
-            fasta_lobject = self.conn.lobject(genomic_oid, 'w')
-            
-            fasta_lobject.unlink()
-        
-        # Delete the DB entries object
-        
-        cur.execute("DELETE from genome_list_contents " +
-                    "WHERE genome_id = %s", [genome_id])
-        
-        cur.execute("DELETE from aligned_markers " +
-                    "WHERE genome_id = %s", [genome_id])
-        
-        cur.execute("DELETE from genomes " +
-                    "WHERE id = %s", [genome_id])
-        
-        self.conn.commit()
-        
-        return True
-        
+      
 #----- Other Functions
 
 def readfq(fp): # this is a generator function

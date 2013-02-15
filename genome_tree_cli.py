@@ -70,17 +70,22 @@ def AddFastaGenome(GenomeDatabase, args):
         if GenomeDatabase.currentUser.getTypeId() > 1:
             ErrorReport("Only administrators can add externally referenced genomes.\n")
             return False
+        source_id = GenomeDatabase.GetGenomeSourceIdFromName(args.source)
+        if source_id is None:
+            ErrorReport("Unable to find source: %s\n" %(args.source,))
+            return False
         genome_id = GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, 'A',
-                                                  GenomeDatabase.GetGenomeSourceIdFromName(args.source),
-                                                  args.id_at_source)
+                                                  source_id, args.id_at_source)
     else:
         genome_id = GenomeDatabase.AddFastaGenome(args.filename, args.name, args.description, 'C')
     if genome_id is not None:
         (tree_id, name, description, owner_id) = GenomeDatabase.GetGenomeInfo(genome_id)
         print "Added %s as %s\n" % (name, tree_id)
+    else:
+        ErrorReport(GenomeDatabase.lastErrorMessage)
     if args.genome_list_id is not None:
         genome_id = GenomeDatabase.GetGenomeId(tree_id)
-        if  GenomeDatabase.ModifyGenomeList(args.genome_list_id, operation='add',
+        if GenomeDatabase.ModifyGenomeList(args.genome_list_id, operation='add',
                 genome_ids=[genome_id]):
             print "Added %s (%s) to genome list %s" % (name, tree_id, args.genome_list_id)
         else:
@@ -226,7 +231,7 @@ def ModifyGenomeList(GenomeDatabase, args):
                        if GenomeDatabase.GetGenomeId(x) is not None]
     
     ret_val = GenomeDatabase.ModifyGenomeList(args.list_id, args.name, args.description,
-                                              genome_ids_list, args.operation, args.public)
+                                              genome_ids_list, args.operation, not(args.public))
     
     if not(ret_val):
         ErrorReport(GenomeDatabase.lastErrorMessage)
@@ -280,17 +285,34 @@ def CreateTreeData(GenomeDatabase, args):
             core_lists = ['public', 'private']
         else:
             core_lists = [args.core_lists]
+    profile_config_dict = dict()
+    if args.profile_args:
+        profile_args = args.profile_args.split(',')
+        for profile_arg in profile_args:
+            key_value_pair = profile_arg.split('=')
+            try:
+                profile_config_dict[key_value_pair[0]] = key_value_pair[1]
+            except IndexError:
+                profile_config_dict[key_value_pair[0]] = None
+    
     if (len(genome_id_set) > 0) or (len(core_lists) != 0):
-        GenomeDatabase.MakeTreeData(args.marker_set_id, core_lists, list(genome_id_set), args.profile, args.out_dir)
+        GenomeDatabase.MakeTreeData(args.marker_set_id, core_lists, list(genome_id_set), args.profile, args.out_dir, config_dict=profile_config_dict)
 
 def ShowAllGenomeLists(GenomeDatabase, args):
     if args.self_owned:
-        genome_lists = GenomeDatabase.GetGenomeLists(GenomeDatabase.currentUser.getUserId())
+        genome_lists = GenomeDatabase.GetVisibleGenomeLists(GenomeDatabase.currentUser.getUserId())
     else:
-        genome_lists = GenomeDatabase.GetGenomeLists()
+        genome_lists = GenomeDatabase.GetVisibleGenomeLists()
     
     print "ID\tName\tOwner\tDesc\n"
     for (list_id, name, description, user) in genome_lists:
+        print "\t".join((str(list_id), name, user, description)),"\n"
+
+def ShowAllMarkerSets(GenomeDatabase, args):
+    marker_sets = GenomeDatabase.GetVisibleMarkerSets()
+    
+    print "ID\tName\tOwner\tDesc\n"
+    for (list_id, name, description, user) in marker_sets:
         print "\t".join((str(list_id), name, user, description)),"\n"
 
 def RecalculateMarkers(GenomeDatabase, args):
@@ -356,8 +378,8 @@ if __name__ == '__main__':
     
     # create the top-level parser
     parser = argparse.ArgumentParser(prog='genome_tree_cli.py')
-    parser.add_argument('-u', dest='login_username', required=True,
-                        help='Username to log into the database'),
+    parser.add_argument('-u', dest='login_username',
+                        help='Username to log into the database', default=getpass.getuser()),
     parser.add_argument('-p', dest='password_filename',
                         help='A File containing password for the user'),
     parser.add_argument('--dev', dest='dev', action='store_true',
@@ -564,6 +586,8 @@ if __name__ == '__main__':
                                         required=True, help='Directory to output the files')
     parser_createtreedata.add_argument('--profile', dest = 'profile',
                                         help='Marker profile to use (default: %s)' % (profiles.ReturnDefaultProfileName(),))
+    parser_createtreedata.add_argument('--profile_args', dest = 'profile_args',
+                                        help='Arguments to provide to the profile')
     parser_createtreedata.set_defaults(func=CreateTreeData)
      
 # -------- Marker management subparsers
@@ -627,6 +651,11 @@ if __name__ == '__main__':
                                     required=True, help='List of Marker IDs (comma separated)')
     parser_deletemarkers.set_defaults(func=DeleteMarkers)
 
+# -------- Show All Genome Lists
+
+    parser_showallmarkersets = subparsers.add_parser('ShowAllMarkerSets',
+                                        help='Shows the details of a Marker Set')
+    parser_showallmarkersets.set_defaults(func=ShowAllMarkerSets)
 
 
     args = parser.parse_args()

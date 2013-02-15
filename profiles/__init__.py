@@ -1,8 +1,8 @@
 import generic
-import phil_30_filter
+import phylosift_gene_filter
 
 profiles = {"generic" : generic,
-            "phil_30_filter": phil_30_filter}
+            "phylosift_gene_filter": phylosift_gene_filter}
 
 def ReturnDefaultProfileName():
     return "generic"

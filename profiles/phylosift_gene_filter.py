@@ -1,16 +1,22 @@
 import os
 import sys
 import psycopg2 as pg
+import xml.etree.ElementTree as ET
+
 import common
 
 valid_configs = [('individual', type(None), "Create individual FASTA files for each marker instead of a concatenated alignment."),
                  ('taxonomy', type(''), "Filter for organisms with this taxonomy (internal genome tree taxonomy)"),
-                 ('reject_missing_taxonomy', type(None), "Reject any genomes that have not got an assigned taxonomy.")]
+                 ('reject_missing_taxonomy', type(None), "Reject any genomes that have not got an assigned taxonomy."),
+                 ('gene_count_threshold', type(0), "Reject any genomes with a phylosift gene count below this threshold.")]
 
 def GetValidConfigOptions():
     return valid_configs
-    
+
 def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, prefix=None, config_dict=None):
+    """
+    TODO - This function is less ugly than before,  but it needs to be cleaned up.
+    """
     if not os.path.isdir(directory):
         GenomeDatabase.ReportError("Directory doesn't exist: " + directory)
         return None
@@ -35,6 +41,9 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
                 print "Calculating markers for ", genome_id
                 print uncalculated_markers  
             GenomeDatabase.RecalculateMarkersForGenome(genome_id, uncalculated_markers)
+    
+    # For each genome, get the number of phylosift markers it contains
+    phylosift_gene_counts = GenomeDatabase.GetAlignedMarkersCountForGenomeFromMarkerSetId(1)
         
     # For all of the markers, get the expected marker size.
     cur.execute("SELECT markers.id, markers.database_specific_id, size " +
@@ -66,6 +75,13 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
         if not result:
             continue
         (tree_id, name, xmlstr, owner) = result
+        # Check if complete.
+        if 'gene_count_threshold' in config_dict and phylosift_gene_counts[genome_id] < int(config_dict['gene_count_threshold']):
+            sys.stderr.write("WARNING: Genome %s has < %i markers (%i) in the database and will be missing from the output files.\n" %
+                             (tree_id,
+                              int(config_dict['gene_count_threshold']),
+                              phylosift_gene_counts[genome_id]))
+            continue
         
         # Populate genome info
         genome_info['markers']  = dict()
