@@ -709,9 +709,7 @@ class GenomeDatabase(object):
         fasta_oid = self.AddLargeObject(fasta_file)
         
         cur.execute("UPDATE genomes SET genomic_fasta = %s WHERE id = %s",
-                    (ffasta_oid, genome_id))
-        
-        fasta_lobject.close()
+                    (fasta_oid, genome_id))
         
         self.conn.commit()
         
@@ -748,7 +746,8 @@ class GenomeDatabase(object):
         if result is not None:
             (genomic_oid,) = result
             
-            self.DeleteLargeObject(genomic_oid)
+            if genomic_oid is not None:
+                self.DeleteLargeObject(genomic_oid)
         
         # Delete the DB entries object
         
