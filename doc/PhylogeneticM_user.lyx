@@ -119,6 +119,24 @@ name "sec:Introduction"
 \end_layout
 
 \begin_layout Section
+How To Use This Documentation
+\end_layout
+
+\begin_layout Standard
+The first time user should read the introductory chapter to understand the
+ terminology used in the database.
+ Otherwise the user should use the table of contents and look at the entries
+ under chapter 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sec:cli"
+
+\end_inset
+
+ and find the task they wish to perform.
+\end_layout
+
+\begin_layout Section
 About PhylogeneticM
 \begin_inset CommandInset label
 LatexCommand label
@@ -164,7 +182,45 @@ Essential Concepts
 \begin_layout Standard
 This section describes the essential concepts and terminology related to
  PhylogeneticM and is required knowledge before using the program.
- The entire framework of the database revolves around the concept of a 
+ 
+\end_layout
+
+\begin_layout Subsection
+For the impatient reader...
+\end_layout
+
+\begin_layout Standard
+In a nutshull, 
+\emph on
+genomes
+\emph default
+ (as FASTA files) are added to the database.
+ They can optionally be added to 
+\emph on
+genome lists
+\emph default
+, collection of 
+\emph on
+genomes
+\emph default
+ that are for the sole purpose of assisting the user in keeping genomes
+ grouped together (they may have some commonality i.e., from the same source,
+ of the same species etc.).
+ This is completely optional.
+ From here, 
+\emph on
+markers
+\emph default
+ (usually single copy genes) are identified within these genomes and stored
+ in the database.
+\end_layout
+
+\begin_layout Subsection
+Overview
+\end_layout
+
+\begin_layout Standard
+The entire framework of the database revolves around the concept of a 
 \emph on
 genome
 \emph default
@@ -482,8 +538,15 @@ The added genome can also be added to an existing genome list using the
 --modify_list
 \emph default
  flag.
- A root user can add reference genomes by specifing a genome source (such
- as IMG or NCBI) using the 
+ A root user can add reference genomes by specifying a genome source (see
+ ShowGenomeSources, section 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sub:Show-Genome-Sources"
+
+\end_inset
+
+) using the 
 \emph on
 --source
 \emph default
@@ -539,7 +602,7 @@ reference "sub:Adding-a-Single-Genome"
 
 \end_inset
 
- .
+.
  The columns are the path to the file (relative to the directory you are
  running the command), the name of the genome as seen by the database, and
  the description of the genome.
@@ -553,6 +616,13 @@ reference "sub:Adding-a-Single-Genome"
 --create_list
 \emph default
  flag.
+ 
+\end_layout
+
+\begin_layout Standard
+As with the AddFastaGenome command, root users can add reference genomes
+ by adding two additional columns to the batchfile, one specifying the source
+ of the genome, and the second specifying the id at that source.
  
 \end_layout
 
@@ -607,6 +677,72 @@ outputFile
 
 \begin_layout Standard
 This will print the FASTA file to stdout or to an output file if specified.
+\end_layout
+
+\begin_layout Subsection
+Searching Genomes in the Database
+\end_layout
+
+\begin_layout Standard
+The database can be searched for genomes that meet specific search criteria
+ using the following command.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py SearchGenomes [--name 
+\emph on
+nameSubstring
+\emph default
+] [--description 
+\emph on
+descSubstring
+\emph default
+] [--tree_id 
+\emph on
+treeId
+\emph default
+] [--owner [
+\emph on
+userName
+\emph default
+]] 
+\end_layout
+
+\begin_layout Standard
+This will return a list of genomes that match the name or description substrings
+ if specified, or the tree ID given.
+ The results can be limited to genomes owned by the specified user.
+\end_layout
+
+\begin_layout Subsection
+Show Genome Sources
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:Show-Genome-Sources"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+This will return a list of the genome sources known by the database.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ShowGenomeSources
+\end_layout
+
+\begin_layout Section
+Genome Lists
+\end_layout
+
+\begin_layout Section
+Markers
 \end_layout
 
 \begin_layout Section
@@ -688,9 +824,9 @@ The root user can add or remove genomes for the core lists by using the
 \begin_layout Quote
 
 \family typewriter
-$ genome_tree_cli.py -u root ModifyCoreLists 
+$ genome_tree_cli.py -u root ModifyCoreLists --tree_ids
 \emph on
---tree_ids treeIds 
+ treeIds 
 \emph default
 --operation {private,public,remove}
 \end_layout
@@ -775,9 +911,9 @@ The tenth bin isolated from the reactor
 \begin_inset Quotes erd
 \end_inset
 
- 
+
 \emph on
-description 
+ 
 \emph default
 --modify_list 6
 \end_layout
