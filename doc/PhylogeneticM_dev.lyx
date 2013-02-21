@@ -1,0 +1,865 @@
+#LyX 2.0 created this file. For more info see http://www.lyx.org/
+\lyxformat 413
+\begin_document
+\begin_header
+\textclass scrbook
+\begin_preamble
+\usepackage{ifpdf} % part of the hyperref bundle
+\ifpdf % if pdflatex is used
+
+ % set fonts for nicer pdf view
+ \IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+
+\fi % end if pdflatex is used
+
+\sloppy
+
+\newenvironment{command}{\everypar{\hangindent=4em\hangafter=2}}
+
+% Variables used within the document
+\newcommand{\currentVersion}{1.6}
+\end_preamble
+\options intoc,bibliography=totoc,index=totoc,BCOR7.5mm,captions=tableheading
+\use_default_options true
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman default
+\font_sans default
+\font_typewriter default
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100
+\font_tt_scale 100
+
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize default
+\spacing single
+\use_hyperref false
+\papersize default
+\use_geometry false
+\use_amsmath 1
+\use_esint 1
+\use_mhchem 1
+\use_mathdots 1
+\cite_engine natbib_authoryear
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\use_refstyle 1
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\quotes_language english
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+The PhylogeneticM Developers Documentation
+\end_layout
+
+\begin_layout Date
+Version 
+\begin_inset ERT
+status open
+
+\begin_layout Plain Layout
+
+
+\backslash
+currentVersion
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset CommandInset toc
+LatexCommand tableofcontents
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+Introduction
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:Introduction"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+About PhylogeneticM
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:About"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+PhylogeneticM was designed and created in the Australian Centre for Ecogenomics
+ with the goal of storing prokaryotic genomes and quickly generating trees
+ based of markers contained within those genomes.
+ It is coded in Python and runs on top of a PostgreSQL database, which it
+ interfaces to using the Python PostgreSQL adaptor, psycopg2.
+\end_layout
+
+\begin_layout Standard
+This document outlines structure of the database as well as explaining the
+ reasoning and coding paradigms associated with the Python code.
+ It is written in TeX/LaTeX using LyX (
+\begin_inset Flex URL
+status collapsed
+
+\begin_layout Plain Layout
+
+http://www.lyx.org/
+\end_layout
+
+\end_inset
+
+) and the source file for producing this document is included in the git
+ repository that contains the PhylogeneticM source code.
+\end_layout
+
+\begin_layout Section
+Essential Reading
+\end_layout
+
+\begin_layout Standard
+Before continuing, a developer should have read and understood the content
+ contained within the 
+\begin_inset Quotes eld
+\end_inset
+
+Essential Concepts
+\begin_inset Quotes erd
+\end_inset
+
+ and 
+\begin_inset Quotes eld
+\end_inset
+
+Assumptions
+\begin_inset Quotes erd
+\end_inset
+
+ sections in the introduction chapter of 
+\begin_inset Quotes eld
+\end_inset
+
+The Genome Tree Database Users Documentation
+\begin_inset Quotes erd
+\end_inset
+
+ and well as the 
+\begin_inset Quotes eld
+\end_inset
+
+Coding Paradigms
+\begin_inset Quotes erd
+\end_inset
+
+ in section 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sec:Coding-Paradigms"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Coding and Design Paradigms
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:Coding-Paradigms"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Described here are some of the coding paradigms of the PhylogeneticM code,
+ and the rationale (or lack thereof) behind them.
+ 
+\end_layout
+
+\begin_layout Subsection
+Interface Agnosticism
+\end_layout
+
+\begin_layout Standard
+PhylogeneticM is written with the design goal that the Python module (known
+ as the 
+\emph on
+backend
+\emph default
+) that interfaces with the PostgreSQL database is completely separate to
+ any code that handles interfacing with the user.
+ Similarly, the code that handles the interface to the user is unable to
+ access the PostgreSQL database directly, and must use the API exposed by
+ the 
+\emph on
+backend
+\emph default
+.
+ In this way, multiple interfaces to the backend can be written in the future
+ without needing to rewrite code.
+ This API is implemented as methods of a Python class, the GenomeDatabase
+ object, contained in the genome_tree_backend.py module.
+ Description of the API methods implemented by the GenomeDatabase class
+ is given later in this documentation.
+\end_layout
+
+\begin_layout Subsection
+Users
+\end_layout
+
+\begin_layout Standard
+Although PostgreSQL is capable of handing permissions of the database, for
+ the sake of simplicity, the database is owned by a single user (representing
+ the PhylogeneticM database interface) and all permission checks are handled
+ within the code using users stored within a table in the database.
+ Users have types associated with them, which dictate which permissions
+ should have on the database.
+ 
+\end_layout
+
+\begin_layout Subsection
+Permissions 
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:Permissions"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Leading on from the previous section, there are currently three users types,
+ listed in increasing restrictions on the database: root, admin and user.
+ 
+\end_layout
+
+\begin_layout Standard
+Users have permission to add 
+\emph on
+genomes
+\emph default
+ to the database, and delete 
+\emph on
+genomes
+\emph default
+ they own (created).
+ Analogously, they can also create 
+\emph on
+genome lists 
+\emph default
+and delete those they have created.
+ While 
+\emph on
+genome lists
+\emph default
+ can be private or public, 
+\emph on
+genomes
+\emph default
+ are not private, once they are added, all users can see all 
+\emph on
+genomes
+\emph default
+.
+ Users can search the database, export complete FASTA files of 
+\emph on
+genomes
+\emph default
+ contained within the database.
+ 
+\end_layout
+
+\begin_layout Standard
+Admin have all the rights of users.
+ In addition, they can delete the 
+\emph on
+genomes
+\emph default
+ and 
+\emph on
+genome lists
+\emph default
+ of other users (but not other admins).
+ They can also create users (but not admins) in the database.
+\end_layout
+
+\begin_layout Standard
+Root is the highest level user types.
+ They can do almost anything without restriction, and are the only class
+ of user that can add, create or modify 
+\emph on
+markers
+\emph default
+ and
+\emph on
+ marker sets
+\emph default
+.
+ One of the few restrictions placed on root is the inability to create another
+ user with root privileges (there should only be one root user).
+\end_layout
+
+\begin_layout Chapter
+PostgreSQL database
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:postgres"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Database Schema
+\end_layout
+
+\begin_layout Standard
+The schema of the underlying database is given in Figure 2.1.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Float figure
+wide false
+sideways false
+status open
+
+\begin_layout Plain Layout
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:Script-Reference"
+
+\end_inset
+
+
+\begin_inset Graphics
+	filename /mnt/luca/workspace/python/PhylogeneticM/doc/schema.eps
+	scale 60
+
+\end_inset
+
+
+\begin_inset Caption
+
+\begin_layout Plain Layout
+The schema of the PhylogeneticM PostgreSQL Database
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Table Definitions
+\end_layout
+
+\begin_layout Subsection
+user_types
+\end_layout
+
+\begin_layout LyX-Code
+CREATE table user_types (
+\end_layout
+
+\begin_layout LyX-Code
+    id integer PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    name text UNIQUE NOT NULL
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\begin_layout Standard
+This table defines the 
+\begin_inset Quotes eld
+\end_inset
+
+classes
+\begin_inset Quotes erd
+\end_inset
+
+ or types of users in the database.
+ At the writing of this document, PhylogeneticM has 3 types of users (shown
+ below as 
+\begin_inset Quotes eld
+\end_inset
+
+name (id)
+\begin_inset Quotes erd
+\end_inset
+
+):
+\end_layout
+
+\begin_layout Itemize
+root (0)
+\end_layout
+
+\begin_layout Itemize
+admin (1)
+\end_layout
+
+\begin_layout Itemize
+user (2)
+\end_layout
+
+\begin_layout Standard
+The permissions associated with each of these are handled within the Genome
+ Tree Database and are described in section 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sub:Permissions"
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Subsection
+databases
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE databases (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    name text UNIQUE NOT NULL
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\begin_layout Standard
+This table defines the marker databases, sources of the HMM files that represent
+ markers in the database.
+ Examples of these would be 
+\begin_inset Quotes eld
+\end_inset
+
+tigrfam
+\begin_inset Quotes erd
+\end_inset
+
+ or 
+\begin_inset Quotes eld
+\end_inset
+
+pfam
+\begin_inset Quotes erd
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Subsection
+genome_sources
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE genome_sources (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    name text UNIQUE NOT NULL
+\end_layout
+
+\begin_layout LyX-Code
+); 
+\end_layout
+
+\begin_layout Standard
+This table defines 
+\end_layout
+
+\begin_layout Subsection
+users
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE users (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    username text UNIQUE NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    password text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    type_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (type_id) REFERENCES user_types(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+); 
+\end_layout
+
+\begin_layout Standard
+This table defines the users of the database.
+ Username is the name of the user used to login to PhylogeneticM.
+ Password is the user's password, hashed using py-bcrypt and type_id is
+ an integer referencing the id field of user_types describing the type of
+ user.
+\end_layout
+
+\begin_layout Subsection
+genomes
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE genomes (     
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    tree_id text UNIQUE NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    name text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    description text,
+\end_layout
+
+\begin_layout LyX-Code
+    metadata xml,
+\end_layout
+
+\begin_layout LyX-Code
+    genomic_fasta oid,
+\end_layout
+
+\begin_layout LyX-Code
+    owner_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    genome_source_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    id_at_source text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    UNIQUE (genome_source_id, id_at_source),
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (genome_source_id) REFERENCES genome_sources(id) ON UPDATE
+ CASCADE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+); 
+\end_layout
+
+\begin_layout Subsection
+genome_lists
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE genome_lists (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    name text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    description text,
+\end_layout
+
+\begin_layout LyX-Code
+    owner_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    private bool NOT NULL DEFAULT TRUE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+); 
+\end_layout
+
+\begin_layout Subsection
+genome_list_contents
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE genome_list_contents (
+\end_layout
+
+\begin_layout LyX-Code
+    list_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    genome_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    PRIMARY KEY (list_id, genome_id),
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (genome_id) REFERENCES genomes(id) ON UPDATE CASCADE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (list_id) REFERENCES genome_lists(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\begin_layout Subsection
+markers
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE markers (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    database_specific_id text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    name text NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    size integer,
+\end_layout
+
+\begin_layout LyX-Code
+    timestamp timestamp NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    database_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    hmm oid,
+\end_layout
+
+\begin_layout LyX-Code
+    UNIQUE (database_specific_id, timestamp, database_id),
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (database_id) REFERENCES databases(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\begin_layout Subsection
+marker_sets
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE marker_sets (
+\end_layout
+
+\begin_layout LyX-Code
+    id serial PRIMARY KEY,
+\end_layout
+
+\begin_layout LyX-Code
+    name text NOT NULL, 
+\end_layout
+
+\begin_layout LyX-Code
+    description text,
+\end_layout
+
+\begin_layout LyX-Code
+    owner_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    private bool NOT NULL DEFAULT TRUE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\begin_layout Subsection
+marker_set_contents
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE marker_set_contents (
+\end_layout
+
+\begin_layout LyX-Code
+    set_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    marker_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    PRIMARY KEY (set_id, marker_id),
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (marker_id) REFERENCES markers(id) ON UPDATE CASCADE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (set_id) REFERENCES marker_sets(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+); 
+\end_layout
+
+\begin_layout Subsection
+aligned_markers
+\end_layout
+
+\begin_layout LyX-Code
+CREATE TABLE aligned_markers (
+\end_layout
+
+\begin_layout LyX-Code
+    genome_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    marker_id integer NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    dna boolean NOT NULL,
+\end_layout
+
+\begin_layout LyX-Code
+    sequence text,
+\end_layout
+
+\begin_layout LyX-Code
+    PRIMARY KEY (genome_id, marker_id, dna),
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (marker_id) REFERENCES markers(id) ON UPDATE CASCADE,
+\end_layout
+
+\begin_layout LyX-Code
+    FOREIGN KEY (genome_id) REFERENCES genomes(id) ON UPDATE CASCADE
+\end_layout
+
+\begin_layout LyX-Code
+);
+\end_layout
+
+\end_body
+\end_document

@@ -4,6 +4,7 @@
 # PostgreSQL interface for PhylogeneticM
 #
 # Documentation written in NaturalDocs format
+#
 #####################################################
 
 import sys
@@ -218,6 +219,24 @@ class GenomeDatabase(object):
     def CheckPlainTextPassword(self, password, hashed_password):
         return bcrypt.hashpw(password, hashed_password) == hashed_password
 
+
+    # Function: GetUserTypeIdFromUserTypeName
+    # Retrieve the type id from the name of the user type.
+    #
+    # Parameters:
+    #     userTypeName - The name of the type of user.
+    #
+    # Returns:
+    #   The id of the user type on success, False otherwise.
+    def GetUserTypeIdFromUserTypeName(self, userTypeName):
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM user_types WHERE name = %s", (userTypeName,))
+        result = cur.fetchone()
+        if result:
+            (userTypeId,) = result
+            return userTypeId
+        return None
+    
     # Function: UserLogin
     # Log a user into the database (make the user the current user of the database).
     #
@@ -413,242 +432,7 @@ class GenomeDatabase(object):
         return True
 
     #
-    # Group: Genome List Management/Query Functions
-    #
-    
-    # Function: CreateGenomeList
-    # Creates a new genome list in the database
-    #
-    # Parameters:
-    #     genome_id_list - A list of genome ids to add to the new list.
-    #     name - The name of the newly created list.
-    #     description - A description of the newly created list.
-    #     owner_id - The id of the user who will own this list.
-    #     private - Bool that denotes whether this list is public or private.
-    #
-    # Returns:
-    #    The genome list id of the newly created list.
-    def CreateGenomeList(self, genome_id_list, name, description, owner_id, private):
-        
-        cur = self.conn.cursor()
-        
-        query = "INSERT INTO genome_lists (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
-        cur.execute(query, (name, description, owner_id, private))
-        (genome_list_id, ) = cur.fetchone()
-        
-        query = "INSERT INTO genome_list_contents (list_id, genome_id) VALUES (%s, %s)"
-        cur.executemany(query, [(genome_list_id, x) for x in genome_id_list])
-        
-        self.conn.commit()
-        
-        return genome_list_id
-    
-    # Function: CloneGenomeList
-    # Creates a new genome list by cloning an existing genome list.
-    #
-    # Parameters:
-    #     genome_list_id - The genome list id of the genome list to clone.
-    #     name - The name of the cloned genome list.
-    #     description - A description of the cloned genome list.
-    #     owner_id - The id of the user who will own the cloned list.
-    #     private - Bool that denotes whether the cloned list is public or private.
-    #
-    # Returns:
-    #    The genome list id of the cloned list.
-    def CloneGenomeList(self, genome_list_id, name, description, owner_id, private):
-        
-        cur = self.conn.cursor()
-        
-        query = "SELECT genome_id FROM genome_list_contents WHERE genome_list_id = %s"
-        cur.execute(query, (genome_list_id,))
-        genome_id_list = [x[0] for x in cur.fetchall()]
-        
-        return self.CreateGenomeList(genome_id_list, name, description, owner_id, private)
-    
-    # Function: ModifyGenomeList
-    # Modify the details or contents of an existing genome list.
-    #
-    # Parameters:
-    #     genome_list_id - The genome list id of the genome list to modify.
-    #     name - If not None, update the genome list's name to this.
-    #     description - If not None, update the genome list's description to this.
-    #     genome_ids - List of genome id that will modify the contents of the genome list (see operation parameter)
-    #     operation - Perform this operation on the genome ids given in the genome_ids parameter with respect to the genome list (options: add, remove)
-    #     private - If not True, change if this list is private.
-    #
-    # Returns:
-    #   True on success, False otherwise.
-    def ModifyGenomeList(self, genome_list_id, name=None, description=None, genome_ids=None,
-                         operation=None, private=None):
-        
-        cur = self.conn.cursor()
-        
-        query = "SELECT owner_id FROM genome_lists WHERE id = %s";
-        cur.execute(query, (genome_list_id,))
-        result = cur.fetchone()
-        if not result:
-            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id))
-            return False
-        
-        (owner_id, ) = result
-        
-        # Need to check permissions to edit this list.
-        if not(self.CheckForCurrentUserHigherPrivileges(owner_id) or owner_id == self.currentUser.getUserId()):
-            self.ReportError("Insufficient privileges to edit this list")
-            return False
-        
-        
-        if name is not None:
-            query = "UPDATE genome_lists SET name = %s WHERE id = %s";
-            cur.execute(query, (name, genome_list_id))
-            
-        if description is not None:
-            query = "UPDATE genome_lists SET description = %s WHERE id = %s";
-            cur.execute(query, (description, genome_list_id))
-            
-        if private is not None:
-            query = "UPDATE genome_lists SET private = %s WHERE id = %s";
-            cur.execute(query, (private, genome_list_id))
-            
-        temp_table_name = "TEMP" + str(int(time.time()))
-        
-        if genome_ids:
-            cur.execute("CREATE TEMP TABLE %s (id integer)" % (temp_table_name,) )
-            query = "INSERT INTO {0} (id) VALUES (%s)".format(temp_table_name)
-            cur.executemany(query, [(x,) for x in genome_ids])
-            
-            if operation == 'add':
-                query = ("INSERT INTO genome_list_contents (list_id, genome_id) " +
-                         "SELECT %s, id FROM {0} " +
-                         "WHERE id NOT IN ( " +
-                            "SELECT genome_id " +
-                            "FROM genome_list_contents " +
-                            "WHERE list_id = %s)").format(temp_table_name)
-                cur.execute(query, (genome_list_id, genome_list_id))
-            elif operation == 'remove':
-                query = ("DELETE FROM genome_list_contents " + 
-                        "WHERE list_id = %s " + 
-                        "AND genome_id IN ( " +  
-                            "SELECT id " +
-                            "FROM {0})").format(temp_table_name)
-                cur.execute(query, [genome_list_id])
-        
-        self.conn.commit()
-        return True
-    
-    # Function: DeleteGenomeList
-    # Checks if the current user can delete genome list, and if both allowed and requested, carry out this task.
-    #
-    # Parameters:
-    #     genome_list_id - The genome list id of the genome list to delete.
-    #     execute - If False, simply check if the list can be deleted. If True, carry out the check and then delete the list (if permitted).
-    #
-    # Returns:
-    #   If execute is False, returns True if the list can be deleted, False otherwise.
-    #   If execute is True, returns True on successful deletion, False otherwise.
-    def DeleteGenomeList(self, genome_list_id, execute):
-        """
-            Delete a genome list by providing a genome list id. The second parameter, execute,
-            is a boolean which specifies whether to actually carry out the deletion, or mearly
-            check if it can be done. This allows the prompting of the user for confirmation to
-            be handled outside the backend and thus is implementation agnostic.
-        """
-        cur = self.conn.cursor()
-        
-        query = "SELECT owner_id FROM genome_lists WHERE id = %s"
-        cur.execute(query, (genome_list_id,))
-        result = cur.fetchone()
-        if not result:
-            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id) + "\n")
-            return False
-        
-        (owner_id,) = result
-        # Check that we have permission to delete this list.
-        if (not self.CheckForCurrentUserHigherPrivileges(owner_id)) and (not (owner_id == self.currentUser.getUserId())):
-            self.ReportError("Insufficient privileges to delete this list: " + str(genome_list_id) + "\n")
-            return False
-        
-        if not execute:
-            return True
-            
-        query = "DELETE FROM genome_list_contents WHERE list_id = %s"
-        cur.execute(query, (genome_list_id,))
-        
-        query = "DELETE FROM genome_lists WHERE id = %s"
-        cur.execute(query, (genome_list_id,))
-        
-        self.conn.commit()
-        
-        return True
-
-    # Function: GetGenomeIdListFromGenomeListId
-    # Given a genome list id, return all the ids of the genomes contained within that genome list.
-    #
-    # Parameters:
-    #     genome_list_id - The genome list id of the genome list whose contents needs to be retrieved.
-    #
-    # Returns:
-    #   A list of all the genome ids contained within the specified genome list, None on failure.
-    def GetGenomeIdListFromGenomeListId(self, genome_list_id):
-        
-        cur = self.conn.cursor()
-        
-        cur.execute("SELECT id " +
-                    "FROM genome_lists " +
-                    "WHERE id = %s", (genome_list_id,))
-        
-        if not cur.fetchone():
-            self.ReportError("No genome list with id: " + str(genome_list_id))
-            return None
-        
-        cur.execute("SELECT genome_id " +
-                    "FROM genome_list_contents " +
-                    "WHERE list_id = %s", (genome_list_id,))
-        
-        result = cur.fetchall()
-        
-        return [genome_id for (genome_id,) in result]
-         
-    # Function: GetVisibleGenomeLists
-    # Get all genome list owned by the specified owner which the current user is allowed to see.
-    #
-    # Parameters:
-    #     owner_id - Get visible genome lists owned by this user with this id. If not specified, get all visible lists.
-    #
-    # Returns:
-    #   A list containing a tuple for each visible genome list. The tuple contains the genome list id, genome list name, genome list description,
-    # and username of the owner of the list (id, name, description, username).
-    def GetVisibleGenomeLists(self, owner_id=None):
-        """
-        Get all genome list owned by owner_id which the current user is allowed
-        to see. If owner_id is None, return all visible genome lists for the
-        current user.
-        """
-        cur = self.conn.cursor()
-
-        if owner_id is None:
-            cur.execute("SELECT list.id, list.name, list.description, username " +
-                        "FROM genome_lists as list, users " +
-                        "WHERE list.owner_id = users.id " +
-                        "AND (list.private = False " +
-                             "OR users.type_id > %s " +
-                             "OR list.owner_id = %s) " +
-                        "ORDER by list.id ", (self.currentUser.getTypeId(),
-                                              self.currentUser.getUserId()))
-        
-        else:
-            cur.execute("SELECT list.id, list.name, list.description, username " +
-            "FROM genome_lists as list, users " +
-            "WHERE list.owner_id = users.id " +
-            "AND list.owner_id = %s " +
-            "ORDER by list.id ", (self.currentUser.getUserId(),))
-        
-        return cur.fetchall()
-
-#-------- Genome Management
-    
-    #
-    # Group: Genome Management Functions
+    # Group: Genome Management/Query Functions
     #
     
     def AddFastaGenome(self, fasta_file, name, desc, id_prefix, source_id=None, id_at_source=None):
@@ -912,19 +696,244 @@ class GenomeDatabase(object):
         
         return True
     
-#-------- Marker Management 
+    #
+    # Group: Genome List Management/Query Functions
+    #
     
-    def GetMarkerIdListFromMarkerSetId(self, marker_set_id):
+    # Function: CreateGenomeList
+    # Creates a new genome list in the database
+    #
+    # Parameters:
+    #     genome_id_list - A list of genome ids to add to the new list.
+    #     name - The name of the newly created list.
+    #     description - A description of the newly created list.
+    #     owner_id - The id of the user who will own this list.
+    #     private - Bool that denotes whether this list is public or private.
+    #
+    # Returns:
+    #    The genome list id of the newly created list.
+    def CreateGenomeList(self, genome_id_list, name, description, owner_id, private):
         
         cur = self.conn.cursor()
-                
-        cur.execute("SELECT marker_id " +
-                    "FROM marker_set_contents " +
-                    "WHERE set_id = %s ", (marker_set_id,))
         
-        marker_id_list = [x[0] for x in cur.fetchall()]
+        query = "INSERT INTO genome_lists (name, description, owner_id, private) VALUES (%s, %s, %s, %s) RETURNING id"
+        cur.execute(query, (name, description, owner_id, private))
+        (genome_list_id, ) = cur.fetchone()
         
-        return marker_id_list
+        query = "INSERT INTO genome_list_contents (list_id, genome_id) VALUES (%s, %s)"
+        cur.executemany(query, [(genome_list_id, x) for x in genome_id_list])
+        
+        self.conn.commit()
+        
+        return genome_list_id
+    
+    # Function: CloneGenomeList
+    # Creates a new genome list by cloning an existing genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to clone.
+    #     name - The name of the cloned genome list.
+    #     description - A description of the cloned genome list.
+    #     owner_id - The id of the user who will own the cloned list.
+    #     private - Bool that denotes whether the cloned list is public or private.
+    #
+    # Returns:
+    #    The genome list id of the cloned list.
+    def CloneGenomeList(self, genome_list_id, name, description, owner_id, private):
+        
+        cur = self.conn.cursor()
+        
+        query = "SELECT genome_id FROM genome_list_contents WHERE genome_list_id = %s"
+        cur.execute(query, (genome_list_id,))
+        genome_id_list = [x[0] for x in cur.fetchall()]
+        
+        return self.CreateGenomeList(genome_id_list, name, description, owner_id, private)
+    
+    # Function: ModifyGenomeList
+    # Modify the details or contents of an existing genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to modify.
+    #     name - If not None, update the genome list's name to this.
+    #     description - If not None, update the genome list's description to this.
+    #     genome_ids - List of genome id that will modify the contents of the genome list (see operation parameter)
+    #     operation - Perform this operation on the genome ids given in the genome_ids parameter with respect to the genome list (options: add, remove)
+    #     private - If not True, change if this list is private.
+    #
+    # Returns:
+    #   True on success, False otherwise.
+    def ModifyGenomeList(self, genome_list_id, name=None, description=None, genome_ids=None,
+                         operation=None, private=None):
+        
+        cur = self.conn.cursor()
+        
+        query = "SELECT owner_id FROM genome_lists WHERE id = %s";
+        cur.execute(query, (genome_list_id,))
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id))
+            return False
+        
+        (owner_id, ) = result
+        
+        # Need to check permissions to edit this list.
+        if not(self.CheckForCurrentUserHigherPrivileges(owner_id) or owner_id == self.currentUser.getUserId()):
+            self.ReportError("Insufficient privileges to edit this list")
+            return False
+        
+        
+        if name is not None:
+            query = "UPDATE genome_lists SET name = %s WHERE id = %s";
+            cur.execute(query, (name, genome_list_id))
+            
+        if description is not None:
+            query = "UPDATE genome_lists SET description = %s WHERE id = %s";
+            cur.execute(query, (description, genome_list_id))
+            
+        if private is not None:
+            query = "UPDATE genome_lists SET private = %s WHERE id = %s";
+            cur.execute(query, (private, genome_list_id))
+            
+        temp_table_name = "TEMP" + str(int(time.time()))
+        
+        if genome_ids:
+            cur.execute("CREATE TEMP TABLE %s (id integer)" % (temp_table_name,) )
+            query = "INSERT INTO {0} (id) VALUES (%s)".format(temp_table_name)
+            cur.executemany(query, [(x,) for x in genome_ids])
+            
+            if operation == 'add':
+                query = ("INSERT INTO genome_list_contents (list_id, genome_id) " +
+                         "SELECT %s, id FROM {0} " +
+                         "WHERE id NOT IN ( " +
+                            "SELECT genome_id " +
+                            "FROM genome_list_contents " +
+                            "WHERE list_id = %s)").format(temp_table_name)
+                cur.execute(query, (genome_list_id, genome_list_id))
+            elif operation == 'remove':
+                query = ("DELETE FROM genome_list_contents " + 
+                        "WHERE list_id = %s " + 
+                        "AND genome_id IN ( " +  
+                            "SELECT id " +
+                            "FROM {0})").format(temp_table_name)
+                cur.execute(query, [genome_list_id])
+        
+        self.conn.commit()
+        return True
+    
+    # Function: DeleteGenomeList
+    # Checks if the current user can delete genome list, and if both allowed and requested, carry out this task.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list to delete.
+    #     execute - If False, simply check if the list can be deleted. If True, carry out the check and then delete the list (if permitted).
+    #
+    # Returns:
+    #   If execute is False, returns True if the list can be deleted, False otherwise.
+    #   If execute is True, returns True on successful deletion, False otherwise.
+    def DeleteGenomeList(self, genome_list_id, execute):
+        """
+            Delete a genome list by providing a genome list id. The second parameter, execute,
+            is a boolean which specifies whether to actually carry out the deletion, or mearly
+            check if it can be done. This allows the prompting of the user for confirmation to
+            be handled outside the backend and thus is implementation agnostic.
+        """
+        cur = self.conn.cursor()
+        
+        query = "SELECT owner_id FROM genome_lists WHERE id = %s"
+        cur.execute(query, (genome_list_id,))
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Cant find specified Genome List Id: " + str(genome_list_id) + "\n")
+            return False
+        
+        (owner_id,) = result
+        # Check that we have permission to delete this list.
+        if (not self.CheckForCurrentUserHigherPrivileges(owner_id)) and (not (owner_id == self.currentUser.getUserId())):
+            self.ReportError("Insufficient privileges to delete this list: " + str(genome_list_id) + "\n")
+            return False
+        
+        if not execute:
+            return True
+            
+        query = "DELETE FROM genome_list_contents WHERE list_id = %s"
+        cur.execute(query, (genome_list_id,))
+        
+        query = "DELETE FROM genome_lists WHERE id = %s"
+        cur.execute(query, (genome_list_id,))
+        
+        self.conn.commit()
+        
+        return True
+
+    # Function: GetGenomeIdListFromGenomeListId
+    # Given a genome list id, return all the ids of the genomes contained within that genome list.
+    #
+    # Parameters:
+    #     genome_list_id - The genome list id of the genome list whose contents needs to be retrieved.
+    #
+    # Returns:
+    #   A list of all the genome ids contained within the specified genome list, None on failure.
+    def GetGenomeIdListFromGenomeListId(self, genome_list_id):
+        
+        cur = self.conn.cursor()
+        
+        cur.execute("SELECT id " +
+                    "FROM genome_lists " +
+                    "WHERE id = %s", (genome_list_id,))
+        
+        if not cur.fetchone():
+            self.ReportError("No genome list with id: " + str(genome_list_id))
+            return None
+        
+        cur.execute("SELECT genome_id " +
+                    "FROM genome_list_contents " +
+                    "WHERE list_id = %s", (genome_list_id,))
+        
+        result = cur.fetchall()
+        
+        return [genome_id for (genome_id,) in result]
+         
+    # Function: GetVisibleGenomeLists
+    # Get all genome list owned by the specified owner which the current user is allowed to see.
+    #
+    # Parameters:
+    #     owner_id - Get visible genome lists owned by this user with this id. If not specified, get all visible lists.
+    #
+    # Returns:
+    #   A list containing a tuple for each visible genome list. The tuple contains the genome list id, genome list name, genome list description,
+    # and username of the owner of the list (id, name, description, username).
+    def GetVisibleGenomeLists(self, owner_id=None):
+        """
+        Get all genome list owned by owner_id which the current user is allowed
+        to see. If owner_id is None, return all visible genome lists for the
+        current user.
+        """
+        cur = self.conn.cursor()
+
+        if owner_id is None:
+            cur.execute("SELECT list.id, list.name, list.description, username " +
+                        "FROM genome_lists as list, users " +
+                        "WHERE list.owner_id = users.id " +
+                        "AND (list.private = False " +
+                             "OR users.type_id > %s " +
+                             "OR list.owner_id = %s) " +
+                        "ORDER by list.id ", (self.currentUser.getTypeId(),
+                                              self.currentUser.getUserId()))
+        
+        else:
+            cur.execute("SELECT list.id, list.name, list.description, username " +
+            "FROM genome_lists as list, users " +
+            "WHERE list.owner_id = users.id " +
+            "AND list.owner_id = %s " +
+            "ORDER by list.id ", (self.currentUser.getUserId(),))
+        
+        return cur.fetchall()
+
+    
+    
+    #
+    # Group: Marker Management Functions
+    #
     
     def AddMarkers(self, hmm_file, database_id):
          
@@ -1044,8 +1053,12 @@ class GenomeDatabase(object):
             hmm_lobject.export(destfile)
         
         return True
-     
-    def AddMarkerSet(self, marker_list, name, description, owner_id, private=True):
+    
+    #
+    # Group: Marker Set Management/Query Functions
+    #
+    
+    def CreateMarkerSet(self, marker_list, name, description, owner_id, private=True):
         
         cur = self.conn.cursor()
         
@@ -1059,6 +1072,69 @@ class GenomeDatabase(object):
         self.conn.commit()
         
         return marker_list_id
+
+    # Function: ModifyMarkerSet
+    # Modify the details or contents of an existing marker set.
+    #
+    # Parameters:
+    #     marker_set_id - The marker set id of the marker set to modify.
+    #     name - If not None, update the marker sets's name to this.
+    #     description - If not None, update the marker set's description to this.
+    #     marker_ids - List of marker id that will modify the contents of the marker sets (see operation parameter)
+    #     operation - Perform this operation on the markers given in the marker_ids parameter with respect to the marker set (options: add, remove)
+    #
+    # Returns:
+    #   True on success, False otherwise.
+    def ModifyMarkerSet(self, marker_set_id, name=None, description=None, marker_ids=None,
+                         operation=None):
+        
+        cur = self.conn.cursor()
+        
+        # Check that you are allowed to delete this genome
+        if not self.CheckIfRootUser():
+            self.lastErrorMessage = "Only root can do that."
+            return False
+        
+        query = "SELECT id FROM marker_sets WHERE id = %s";
+        cur.execute(query, (marker_set_id,))
+        result = cur.fetchone()
+        if not result:
+            self.ReportError("Cant find specified Marker Set Id: " + str(marker_set_id))
+            return False
+        
+        if name is not None:
+            query = "UPDATE marker_sets SET name = %s WHERE id = %s";
+            cur.execute(query, (name, marker_set_id))
+            
+        if description is not None:
+            query = "UPDATE marker_sets SET description = %s WHERE id = %s";
+            cur.execute(query, (description, marker_set_id))
+                
+        temp_table_name = "TEMP" + str(int(time.time()))
+        
+        if marker_ids:
+            cur.execute("CREATE TEMP TABLE %s (id integer)" % (temp_table_name,) )
+            query = "INSERT INTO {0} (id) VALUES (%s)".format(temp_table_name)
+            cur.executemany(query, [(x,) for x in marker_ids])
+            
+            if operation == 'add':
+                query = ("INSERT INTO marker_set_contents (list_id, marker_id) " +
+                         "SELECT %s, id FROM {0} " +
+                         "WHERE id NOT IN ( " +
+                            "SELECT marker_id " +
+                            "FROM marker_set_contents " +
+                            "WHERE set_id = %s)").format(temp_table_name)
+                cur.execute(query, (marker_set_id, marker_set_id))
+            elif operation == 'remove':
+                query = ("DELETE FROM marker_set_contents " + 
+                        "WHERE set_id = %s " + 
+                        "AND marker_id IN ( " +  
+                            "SELECT id " +
+                            "FROM {0})").format(temp_table_name)
+                cur.execute(query, [marker_set_id])
+        
+        self.conn.commit()
+        return True
 
     # Function: GetVisibleMarkerSets
     # Get all genome marker sets which the current user is allowed to see.
@@ -1080,6 +1156,27 @@ class GenomeDatabase(object):
         
         
         return cur.fetchall()
+    
+    # Function: GetMarkerIdListFromMarkerSetId
+    # Given a marker set id, return all the ids of the markers contained within that marker set.
+    #
+    # Parameters:
+    #     marker_set_id - The marker set id of the marker set whose contents needs to be retrieved.
+    #
+    # Returns:
+    #   A list of all the marker ids contained within the specified marker set, None on failure.
+    def GetMarkerIdListFromMarkerSetId(self, marker_set_id):
+        
+        cur = self.conn.cursor()
+                
+        cur.execute("SELECT marker_id " +
+                    "FROM marker_set_contents " +
+                    "WHERE set_id = %s ", (marker_set_id,))
+        
+        marker_id_list = [x[0] for x in cur.fetchall()]
+        
+        return marker_id_list
+    
         
     def GetAlignedMarkersCountForGenomeFromMarkerSetId(self, marker_set_id):
     
@@ -1094,7 +1191,9 @@ class GenomeDatabase(object):
         
         return dict(cur.fetchall())
     
-#-------- Marker Calculation
+    #
+    # Group: Marker Calculation Functions
+    #
 
     def FindUncalculatedMarkersForGenomeId(self, genome_id, marker_id_list):
         
@@ -1299,7 +1398,9 @@ class GenomeDatabase(object):
             genome_id = self.GetGenomeId(tree_id)
             self.RecalculateMarkersForGenome(genome_id)
   
-#-------- Metadata Managements
+    #
+    # Group: Metadata Management Functions
+    #
     
     def AddCustomMetadata(self, xml_path, data_dict):
         cur = self.conn.cursor()
@@ -1343,15 +1444,15 @@ class GenomeDatabase(object):
     def UpdateTaxonomies(self, taxonomy_dict):
         return self.AddCustomMetadata('data/internal/taxonomy', taxonomy_dict)
     
-    def UpdateCoreList(self, genome_ids, operation):
+    def ModifyCoreLists(self, genome_ids, operation):
         cur = self.conn.cursor()
         
         if not self.CheckIfRootUser():
             self.lastErrorMessage = "Only root can do that."
             return False
         
-        if operation not in ["private", "public", "delete"]:
-            self.lastErrorMessage = "Operation needs to be one of: private, public, delete."
+        if operation not in ["private", "public", "remove"]:
+            self.lastErrorMessage = "Operation needs to be one of: private, public, remove."
             return False
         
         for genome_id in genome_ids:
@@ -1366,7 +1467,7 @@ class GenomeDatabase(object):
             root = et.fromstring(xmlstr)
             internal_node =  xml_funcs.ReturnExtantOrCreateElement(root, 'internal')[0][0]
             core_list_node = xml_funcs.ReturnExtantOrCreateElement(internal_node, 'core_list')[0][0]
-            if operation == "delete":
+            if operation == "remove":
                 internal_node.remove(core_list_node)
             else:
                 core_list_node.text = escape(operation)
@@ -1378,7 +1479,9 @@ class GenomeDatabase(object):
         self.conn.commit()
         return True
     
-#-------- Genome Sources Management
+    #
+    # Group: Genome Source Management Functions
+    #
 
     def GetGenomeSources(self):
         cur = self.conn.cursor()
@@ -1400,7 +1503,9 @@ class GenomeDatabase(object):
             self.ReportError("Unable to find source: " + source_name)
         return None
 
-# ------- Genome Treeing
+    #
+    # Group: Tree Data Creation and Related Functions
+    #
 
     def ReturnKnownProfiles(self):
         return profiles.profiles.keys()

@@ -1,0 +1,950 @@
+#LyX 2.0 created this file. For more info see http://www.lyx.org/
+\lyxformat 413
+\begin_document
+\begin_header
+\textclass scrbook
+\begin_preamble
+\usepackage{ifpdf} % part of the hyperref bundle
+\ifpdf % if pdflatex is used
+
+ % set fonts for nicer pdf view
+ \IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+
+\fi % end if pdflatex is used
+
+\sloppy
+
+\newenvironment{command}{\everypar{\hangindent=4em\hangafter=2}}
+
+% Variables used within the document
+\newcommand{\currentVersion}{1.8}
+\end_preamble
+\options intoc,bibliography=totoc,index=totoc,BCOR7.5mm,captions=tableheading
+\use_default_options true
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman default
+\font_sans default
+\font_typewriter default
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100
+\font_tt_scale 100
+
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize default
+\spacing single
+\use_hyperref false
+\papersize default
+\use_geometry false
+\use_amsmath 1
+\use_esint 1
+\use_mhchem 1
+\use_mathdots 1
+\cite_engine natbib_authoryear
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\use_refstyle 1
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\quotes_language english
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+The PhylogeneticM Users Documentation
+\end_layout
+
+\begin_layout Date
+Version 
+\begin_inset ERT
+status open
+
+\begin_layout Plain Layout
+
+
+\backslash
+currentVersion
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset CommandInset toc
+LatexCommand tableofcontents
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+Introduction
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:Introduction"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+About PhylogeneticM
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:About"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+PhylogeneticM was designed and created in the Australian Centre for Ecogenomics
+ with the goal of storing prokaryotic genomes and quickly generating trees
+ based of markers contained within those genomes.
+ It is coded in Python and runs on top of a PostgreSQL database, which it
+ interfaces to using the Python PostgreSQL adaptor, psycopg2.
+\end_layout
+
+\begin_layout Standard
+This document outlines the main concepts of the database and how to use
+ and query the database using the command line interface.
+ This document is structured around each of the core objects in the database
+ and describes commands to interrogate and manipulate the data.
+ It is written in TeX/LaTeX using LyX (
+\begin_inset Flex URL
+status collapsed
+
+\begin_layout Plain Layout
+
+http://www.lyx.org/
+\end_layout
+
+\end_inset
+
+) and the source file for producing this document is included in the git
+ repository that contains the PhylogeneticM source code.
+\end_layout
+
+\begin_layout Section
+Essential Concepts
+\end_layout
+
+\begin_layout Standard
+This section describes the essential concepts and terminology related to
+ PhylogeneticM and is required knowledge before using the program.
+ The entire framework of the database revolves around the concept of a 
+\emph on
+genome
+\emph default
+ which is represented in the database as a (multiple-entry) single nucleotide
+ FASTA file.
+ This can be a single complete sequence or a collection of contigs.
+ A contig is identified in PhylogeneticM by its 
+\emph on
+tree ID
+\emph default
+.
+ A collection of genomes is known as a 
+\emph on
+genome list
+\emph default
+.
+ 
+\end_layout
+
+\begin_layout Standard
+The second essential concept is that of a 
+\emph on
+marker
+\emph default
+.
+ A 
+\emph on
+marker
+\emph default
+ is a collection of sequences common to some subset (or perhaps all) 
+\emph on
+genomes
+\emph default
+ in the database that have come from a common ancestoral genome.
+ These usually encode for a highly conserved functional product, and are
+ thus stored as protein sequences.
+ 
+\emph on
+Markers 
+\emph default
+in the database are represented by HMMER 3.0 HMM (Hidden Markov Model) files.
+ A collection of markers is known as a 
+\emph on
+marker set
+\emph default
+.
+\end_layout
+
+\begin_layout Standard
+When a 
+\emph on
+marker
+\emph default
+ HMM is applied to a (translated) 
+\emph on
+genome
+\emph default
+ using HMMER, the best hit is realigned to the HMM, and the aligned residues
+ are stored in the database (after passing a stringency filter) to give
+ an 
+\emph on
+aligned marker
+\emph default
+.
+\end_layout
+
+\begin_layout Standard
+A 
+\emph on
+concatenated alignment
+\emph default
+ for a 
+\emph on
+genome
+\emph default
+ can be created by concatenating all the 
+\emph on
+aligned markers
+\emph default
+ corresponding to both that 
+\emph on
+genome
+\emph default
+ and some 
+\emph on
+marker set
+\emph default
+.
+ By preserving the order in which the 
+\emph on
+aligned markers
+\emph default
+ are concatenated, and doing the same for multiple 
+\emph on
+genome
+\emph default
+s in a 
+\emph on
+genome list
+\emph default
+, a multiple 
+\emph on
+concatenated alignment
+\emph default
+ is created and can be used by third party programs to create phylogenetic
+ trees.
+ This is the core workflow of PhylogeneticM.
+\end_layout
+
+\begin_layout Standard
+The concatenated alignment output by this workflow can also be controlled
+ by 
+\emph on
+profiles
+\emph default
+, which modify the way in which the data is generated.
+\end_layout
+
+\begin_layout Standard
+There are special 
+\emph on
+genome lists
+\emph default
+ in the database known as 
+\emph on
+core lists
+\emph default
+.
+ These are curated by the administrators of PhylogeneticM, and contain core
+ representatives within the prokaryotic tree of life.
+\end_layout
+
+\begin_layout Section
+Assumptions
+\end_layout
+
+\begin_layout Standard
+These are the assumptions made when designing the database.
+ While voliating these assumptions may not cause failures in the database,
+ results may be less accurate or even incorrect.
+\end_layout
+
+\begin_layout Enumerate
+PhylogeneticM assumes that a 
+\emph on
+genome
+\emph default
+ is pure, ie not chimeric or containing contigs from multiple organisms.
+ This is because the database was designed to store and tree 
+\emph on
+genomes
+\emph default
+, not to validate integrity of 
+\emph on
+genomes
+\emph default
+ placed into it.
+\end_layout
+
+\begin_layout Enumerate
+Markers are assumed to be single copy or absent in the 
+\emph on
+genomes 
+\emph default
+of PhylogeneticM.
+ 
+\end_layout
+
+\begin_layout Chapter
+Command Line Interface (CLI) Overview
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:cli"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+Command Line Syntax
+\end_layout
+
+\begin_layout Standard
+While efforts are made to keep the snytax of this document up to date, the
+ documentation shown here may become inconsistent with the syntax of the
+ PhylogeneticM command line interface.
+ It is recommended that before running a command, the 
+\emph on
+-h
+\emph default
+ flag is used to invoke the help for that command.
+\end_layout
+
+\begin_layout Standard
+Given below is the general syntax of the command line interface:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py [-h] [-u 
+\emph on
+user
+\emph default
+] [--dev] [--debug] 
+\emph on
+Command 
+\emph default
+[-h] [
+\emph on
+commandParameters
+\emph default
+]
+\end_layout
+
+\begin_layout Standard
+The optional parameters before the 
+\emph on
+Command
+\emph default
+ are omitted in further syntax demonstrations (except if a specific user
+ is required).
+ If the 
+\emph on
+-u
+\emph default
+ flag is omitted, the username of the current operating system user is used.
+\end_layout
+
+\begin_layout Section
+Users
+\end_layout
+
+\begin_layout Standard
+There are three classes of users in PhylogeneticM, root, admin and standard
+ users (referred to herein as users).
+ Users can be created by admins and admins can be created by root.
+ An account of one of these classes of accounts is required in order to
+ access the database.
+\end_layout
+
+\begin_layout Subsection
+Creating Users
+\end_layout
+
+\begin_layout Standard
+Use the following command to create a new user of the database:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateUser --name 
+\emph on
+name
+\emph default
+ --type {admin, user}
+\end_layout
+
+\begin_layout Section
+Genomes
+\end_layout
+
+\begin_layout Subsection
+Adding a Single Genome 
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:Adding-a-Single-Genome"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+A genome is represented as a nucleotide FASTA file in the database.
+ A single genome can be added using the following command:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py AddFastaGenome --file 
+\emph on
+pathToFasta
+\emph default
+ --name 
+\emph on
+name
+\emph default
+ --description 
+\emph on
+description 
+\emph default
+[--modify_list 
+\emph on
+genomeListId
+\emph default
+] [--source 
+\emph on
+source
+\emph default
+] [--id_at_source 
+\emph on
+idAtSource
+\emph default
+]
+\end_layout
+
+\begin_layout Standard
+The added genome can also be added to an existing genome list using the
+ 
+\emph on
+--modify_list
+\emph default
+ flag.
+ A root user can add reference genomes by specifing a genome source (such
+ as IMG or NCBI) using the 
+\emph on
+--source
+\emph default
+ flag and by providing its ID at that source using the 
+\emph on
+--id_at_source
+\emph default
+ flag.
+\end_layout
+
+\begin_layout Subsection
+Adding Multiple Genomes
+\end_layout
+
+\begin_layout Standard
+As described in section 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sub:Adding-a-Single-Genome"
+
+\end_inset
+
+ above, however a batch file is used to add multiple genomes at once.
+ Command is below:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py AddManyFastaGenomes --batchfile 
+\emph on
+pathToBatchfile
+\emph default
+ [--modify_list 
+\emph on
+genomeListId
+\emph default
+] [--create_list 
+\emph on
+genomeListName
+\emph default
+]
+\end_layout
+
+\begin_layout Standard
+The batch file is a tab separated file of 3 (or 5 for root, see below) columns,
+ one line per genome.
+ These columns mirror the options of the AddFastaGenome command given in
+ section 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sub:Adding-a-Single-Genome"
+
+\end_inset
+
+ .
+ The columns are the path to the file (relative to the directory you are
+ running the command), the name of the genome as seen by the database, and
+ the description of the genome.
+ You need to either add these genomes to an existing genome list using the
+ 
+\emph on
+--modify_list
+\emph default
+ flag, or create a new genome list using the 
+\emph on
+--create_list
+\emph default
+ flag.
+ 
+\end_layout
+
+\begin_layout Subsection
+Exporting the Genome as FASTA
+\end_layout
+
+\begin_layout Standard
+The FASTA file of a genome is kept in the database, and can be exported
+ using the following command
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ExportFasta --tree_id 
+\emph on
+treeId
+\emph default
+ [--output 
+\emph on
+outputFile
+\emph default
+] 
+\end_layout
+
+\begin_layout Standard
+This will print the FASTA file to stdout or to an output file if specified.
+\end_layout
+
+\begin_layout Subsection
+Deleting Genomes
+\end_layout
+
+\begin_layout Standard
+A genome can be deleted from the database by using the following command:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py DeleteFasta --tree_id 
+\emph on
+treeId
+\emph default
+ [--output 
+\emph on
+outputFile
+\emph default
+] 
+\end_layout
+
+\begin_layout Standard
+This will print the FASTA file to stdout or to an output file if specified.
+\end_layout
+
+\begin_layout Section
+Creating Tree Data
+\end_layout
+
+\begin_layout Standard
+Explain this:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateTreeData --set_id 
+\emph on
+markerSetId
+\emph default
+ [--core_lists {private,public,both}] [--list_ids 
+\emph on
+genomeListId
+\emph default
+s] [--tree_ids
+\emph on
+ treeIds
+\emph default
+] --output 
+\emph on
+out_dir
+\emph default
+ [--profile 
+\emph on
+profileName
+\emph default
+] [--profile_args 
+\emph on
+profileArguments
+\emph default
+] 
+\end_layout
+
+\begin_layout Section
+Metadata Management
+\end_layout
+
+\begin_layout Subsection
+Update Internal Taxonomies (Root Only)
+\end_layout
+
+\begin_layout Standard
+The root user can update the internal taxonomies of the genomes in the database
+ using the following command:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py -u root UpdateTaxonomies --taxonomy_file 
+\emph on
+taxonomyFile
+\end_layout
+
+\begin_layout Standard
+The taxonomy file is tab separated file containing two columns, one line
+ per genome.
+ The columns in the taxonomy file are the tree id and its corresponding
+ taxonomy string.
+ 
+\end_layout
+
+\begin_layout Subsection
+Modifying the Core Lists (Root Only)
+\end_layout
+
+\begin_layout Standard
+The root user can add or remove genomes for the core lists by using the
+ following command:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py -u root ModifyCoreLists 
+\emph on
+--tree_ids treeIds 
+\emph default
+--operation {private,public,remove}
+\end_layout
+
+\begin_layout Standard
+This command will take the tree ids (comma separated) and make them members
+ of the public or private list, or remove them from either list.
+\end_layout
+
+\begin_layout Chapter
+Example Workthrough (User)
+\end_layout
+
+\begin_layout Section
+Introduction
+\end_layout
+
+\begin_layout Standard
+The following example works through a hypothetical situation to demonstrate
+ the usage of the CLI.
+ You should read through the entire workflow, skipping irrelevent chapters.
+\end_layout
+
+\begin_layout Section
+Adding User Genomes
+\begin_inset CommandInset label
+LatexCommand label
+name "sec:Adding-User-Genomes"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+We have a new genome to add to the database, isolated from a reactor, but
+ we have already added genomes from this reactor and created a genome list
+ to keep track of them.
+ We would like to add this new genome to the list as well.
+\end_layout
+
+\begin_layout Standard
+Firstly, we need to find the ID of the genome list we want to add the genome
+ to.
+ As we created (and own) the genome list, we only want to show genomes that
+ belong to us.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ShowAllGenomeLists --owned
+\end_layout
+
+\begin_layout Standard
+Lets say that our genome list is ID 6.
+ To add our new genome to the database and the list, use the following command
+ (NB: if you only want to add the genome, and not modify any lists, just
+ omit the
+\emph on
+ --modify_list <n>
+\emph default
+ switch):
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py AddFastaGenome --file new_genome.fasta --name 
+\begin_inset Quotes eld
+\end_inset
+
+Bin10 from reactor
+\begin_inset Quotes eld
+\end_inset
+
+ --description 
+\begin_inset Quotes erd
+\end_inset
+
+The tenth bin isolated from the reactor
+\begin_inset Quotes erd
+\end_inset
+
+ 
+\emph on
+description 
+\emph default
+--modify_list 6
+\end_layout
+
+\begin_layout Standard
+If successful, the command will output the tree ID of the newly added genome.
+\end_layout
+
+\begin_layout Section
+Altering Genome Lists
+\end_layout
+
+\begin_layout Standard
+We can also add or remove genomes from genome list using the CLI.
+ Let's say we want to remove the genome we added in the last section to
+ the genome list with genome list id 6.
+ In case we have forgotten the tree id, we can search for it using the SearchGen
+omes command of the CLI.
+ Here we will search the database for genomes we own where the name contains
+ the substring 
+\begin_inset Quotes eld
+\end_inset
+
+Bin10
+\begin_inset Quotes erd
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py SearchGenomes --owner --name "Bin10"
+\end_layout
+
+\begin_layout Standard
+Alternatively, we could search for the genomes contained within our list
+ and find the tree id of the genome we want to remove that way.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py SearchGenomes --list_id 6
+\end_layout
+
+\begin_layout Standard
+In either case, let's say that the TreeID of the genome we added was C00004435.
+ Using this information we can now remove this genome from our genome list
+ (it will not delete the genome from the database).
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ModifyGenomeList --list_id 6 --tree_ids C00004435 --operatio
+n remove
+\end_layout
+
+\begin_layout Standard
+This was simply to demonstrate how to alter genome lists, let's add this
+ genome back to the genome list.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ModifyGenomeList --list_id 6 --tree_ids C00004435 --operatio
+n add
+\end_layout
+
+\begin_layout Section
+Building Tree Data
+\end_layout
+
+\begin_layout Standard
+We now want to build a tree including our new genomes.
+ We firstly have to choose a set of markers to create the concatenated alignment
+ for building trees.
+ We can see all available marker sets using the following command:
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py ShowAllMarkerSets
+\end_layout
+
+\begin_layout Standard
+We are going to use a marker set called 
+\begin_inset Quotes eld
+\end_inset
+
+0.86 threshold
+\begin_inset Quotes erd
+\end_inset
+
+, which lets say has marker set id 5.
+ In addition to our genome list (ID 6), we are also going to include internal
+ genome lists called 
+\begin_inset Quotes eld
+\end_inset
+
+core lists
+\begin_inset Quotes erd
+\end_inset
+
+ to create the tree, using both the public and private core lists, because
+ this tree will be for internal ACE use only (read more about public and
+ private core lists in CreateTreeData).
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateTreeData --core_lists both --set_id 5 --list_ids
+ 6 --output results_dir
+\end_layout
+
+\begin_layout Standard
+The results_dir will contain a database file for ARB and a concatenated
+ alignment which can be sent to a tree building program (FastTree, RAxML).
+ 
+\end_layout
+
+\begin_layout Standard
+Lets say we want to build a tree including only the core lists and the genome
+ we added.
+ We can do this by specifying the TreeID of the genome.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateTreeData --core_lists both --set_id 5 --tree_ids
+ C00004435 --output results_dir
+\end_layout
+
+\begin_layout Standard
+Both of these are very vanilla ways to run CreateTreeData, we can do more
+ things such as limit species that are output based on taxonomy.
+ For example, we will run the first command but limit to a bacteria only
+ tree.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateTreeData --core_lists both --set_id 5 --list_ids
+ 6 --output results_dir --profile generic --profile_args taxonomy=k__Bacteria
+\end_layout
+
+\begin_layout Standard
+Furthermore, we can limit the genomes that go into the tree based on the
+ number of genes contained from the phylosift marker set.
+ Here we will set the threshold to 30 genes, so genomes that contain less
+ that 30 of the 38 phylosift markers will be omitted.
+\end_layout
+
+\begin_layout Quote
+
+\family typewriter
+$ genome_tree_cli.py CreateTreeData --core_lists both --set_id 5 --list_ids
+ 6 --output results_dir --profile phylosift_gene_filter --profile_args taxonomy=
+k__Bacteria,gene_count_threshold=30
+\end_layout
+
+\end_body
+\end_document

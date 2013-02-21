@@ -103,6 +103,7 @@ def MakeTreeData(GenomeDatabase, marker_set_id, list_of_genome_ids, directory, p
         if (cur.rowcount == 0):
             sys.stderr.write("WARNING: Genome %s has no markers for this marker set in the database and will be missing from the output files.\n" % tree_id)
             sys.stderr.flush()
+            continue
         for marker_id, sequence in cur:
             genome_info['markers'][marker_id] = sequence
             

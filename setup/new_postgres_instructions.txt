@@ -1,0 +1,11 @@
+create a new postgres db folder:
+    initdb -D new_pg_db_folder
+    
+start up the server:
+    postgres -D new_pg_db_folder
+
+create a new db:
+    createdb new_db_name
+    
+populate the new db using the template sql (in this folder):
+    cat new_postgres_db.sql | psql new_db_name   
