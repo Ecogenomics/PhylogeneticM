@@ -946,6 +946,7 @@ class GenomeDatabase(object):
         try:
             mp = HmmModelParser(hmm_file)
             added_oids = list()
+            added_marker_ids = list()
             for model in mp.parse():
                 splitdate = model.date.split()
                 postgres_date = "%s %s" % ("-".join([splitdate[1], splitdate[2], splitdate[4]]), splitdate[3])
@@ -969,6 +970,8 @@ class GenomeDatabase(object):
                             "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
                 
                 marker_id = cur.fetchone()[0]
+                
+                added_marker_ids.append(marker_id)
             
                 marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
             
@@ -990,7 +993,7 @@ class GenomeDatabase(object):
                 marker_lobject = self.conn.lobject(oid, 'w')
                 marker_lobject.unlink()
         
-        return True
+        return added_marker_ids
     
     def DeleteMarker(self, marker_id):
         
@@ -1053,6 +1056,15 @@ class GenomeDatabase(object):
             hmm_lobject.export(destfile)
         
         return True
+    
+    def GetMarkerDatabaseIDFromName(self, databaseName):
+        cur = self.conn.cursor()
+        cur.execute("SELECT id FROM databases WHERE name = %s", (databaseName,))
+        result = cur.fetchone()
+        if result:
+            (userTypeId,) = result
+            return userTypeId
+        return None
     
     #
     # Group: Marker Set Management/Query Functions

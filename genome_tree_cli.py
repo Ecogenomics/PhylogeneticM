@@ -373,9 +373,26 @@ def ModifyCoreLists(GenomeDatabase, args):
         ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
 
 def AddMarkers(GenomeDatabase, args):
-    if not GenomeDatabase.AddMarkers(args.file, args.dbname):
+    database_id = GenomeDatabase.GetMarkerDatabaseIDFromName(args.dbname)
+    if database_id is None:
+        ErrorReport("Database %s not known\n" % (args.dbname,))
+        return False
+    added_marker_ids = GenomeDatabase.AddMarkers(args.file, database_id)
+    if not added_marker_ids:
         ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
         return False
+    if args.marker_set_name:
+        if GenomeDatabase.CreateMarkerSet(added_marker_ids, args.marker_set_name, "", GenomeDatabase.currentUser.getUserId(), False):
+            return True
+        else:
+            ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+            return False
+    if args.marker_set_id:
+        if GenomeDatabase.ModifyMarkerSet(args.marker_set_id, None, None, added_marker_ids, 'add'):
+            return True
+        else:
+            ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
+            return False
     
 def DeleteMarkers(GenomeDatabase, args):
     for marker_id in args.marker_ids.split(','):
@@ -639,7 +656,7 @@ if __name__ == '__main__':
                                          required=True,  help='Operation to perform')
     parser_modifycorelist.set_defaults(func=ModifyCoreLists)
 
-#--------- Marker Management - AddMarkers
+#--------- Marker Management
 
     parser_addmarkers = subparsers.add_parser('AddMarkers', 
                                  help='Add in one or many marker HMMs into the database')
@@ -647,10 +664,16 @@ if __name__ == '__main__':
                                 help='Name of the database that the markers belong to')
     parser_addmarkers.add_argument('--file', dest='file', required=True,
                                 help='File containing the HMM model(s) for the marker(s)')
+    mutex_group = parser_addmarkers.add_mutually_exclusive_group(required=False)
+    mutex_group.add_argument('--modify_set', dest = 'marker_set_id',
+                                    help='Modify a marker set with the \
+                                    specified id and add all markers to it.')
+    mutex_group.add_argument('--create_set', dest = 'marker_set_name',
+                                    help='Create a marker set with the specified name and add these markers to it.')
     parser_addmarkers.set_defaults(func=AddMarkers)
     
 
-#--------- Marker Management - DeleteMarkers
+#--------- Marker Management
 
     parser_deletemarkers = subparsers.add_parser('DeleteMarkers',
                                     help='Delete markers from the database')
