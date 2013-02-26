@@ -377,7 +377,7 @@ def AddMarkers(GenomeDatabase, args):
     if database_id is None:
         ErrorReport("Database %s not known\n" % (args.dbname,))
         return False
-    added_marker_ids = GenomeDatabase.AddMarkers(args.file, database_id)
+    added_marker_ids = GenomeDatabase.AddMarkers(args.file, database_id, args.use_existing)
     if not added_marker_ids:
         ErrorReport(GenomeDatabase.lastErrorMessage + "\n")
         return False
@@ -397,7 +397,11 @@ def AddMarkers(GenomeDatabase, args):
 def DeleteMarkers(GenomeDatabase, args):
     for marker_id in args.marker_ids.split(','):
         GenomeDatabase.DeleteMarker(marker_id)
-
+        
+def ShowAllMarkerSets(GenomeDatabase, args):
+    pass
+    
+    
 if __name__ == '__main__':
     
     # create the top-level parser
@@ -664,6 +668,8 @@ if __name__ == '__main__':
                                 help='Name of the database that the markers belong to')
     parser_addmarkers.add_argument('--file', dest='file', required=True,
                                 help='File containing the HMM model(s) for the marker(s)')
+    parser_addmarkers.add_argument('--use_existing', dest='use_existing', action='store_true', default=False,
+                                help='If copies of this marker already exist in the database, use the copy in the database. These markers will still be added to the specified marker set (if specified)')
     mutex_group = parser_addmarkers.add_mutually_exclusive_group(required=False)
     mutex_group.add_argument('--modify_set', dest = 'marker_set_id',
                                     help='Modify a marker set with the \
@@ -672,6 +678,9 @@ if __name__ == '__main__':
                                     help='Create a marker set with the specified name and add these markers to it.')
     parser_addmarkers.set_defaults(func=AddMarkers)
     
+    parser_showallmarkerdatabases = subparsers.add_parser('ShowAllMarkerDatabases',
+                                                          help='Shows all the possible databases markers can com from')
+    parser_showallmarkerdatabases.set_defaults(func=ModifyCoreLists)
 
 #--------- Marker Management
 
@@ -686,7 +695,6 @@ if __name__ == '__main__':
     parser_showallmarkersets = subparsers.add_parser('ShowAllMarkerSets',
                                         help='Shows the details of a Marker Set')
     parser_showallmarkersets.set_defaults(func=ShowAllMarkerSets)
-
 
     args = parser.parse_args()
     

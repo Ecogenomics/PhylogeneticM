@@ -935,7 +935,7 @@ class GenomeDatabase(object):
     # Group: Marker Management Functions
     #
     
-    def AddMarkers(self, hmm_file, database_id):
+    def AddMarkers(self, hmm_file, database_id, use_existing=False):
          
         cur = self.conn.cursor()
         
@@ -965,22 +965,42 @@ class GenomeDatabase(object):
                 tmpoutfile.write(str(model))
                 tmpoutfile.close()
             
-                cur.execute("INSERT into markers (database_specific_id, name, size, database_id, timestamp) "+
-                            "VALUES (%s, %s, %s, %s, %s) "+
-                            "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
+                cur.execute("SELECT id, database_specific_id, timestamp, name "+
+                            "FROM markers "+
+                            "WHERE database_specific_id = %s " +
+                            "AND timestamp = %s " +
+                            "AND database_id = %s", (model.acc, postgres_date, database_id))
                 
-                marker_id = cur.fetchone()[0]
+                result = cur.fetchone()
                 
-                added_marker_ids.append(marker_id)
-            
-                marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
-            
-                cur.execute("UPDATE markers SET hmm = %s WHERE id = %s",
-                        (marker_lobject.oid, marker_id))
+                if result:
+                    (marker_id, database_specific_id, timestamp, name) = result
+                    if use_existing:
+                        added_marker_ids.append(marker_id)
+                        sys.stderr.write("%s already exists in database, using existing marker\n" % (database_specific_id,))
+                    else:
+                        self.lastErrorMessage = "Marker '%s' already exists in database, use --use_existing flag to ignore" % (database_specific_id,)
+                        return False
+                        
+                    
+                else:
                 
-                added_oids.append(marker_lobject.oid)
-            
-                marker_lobject.close()
+                    cur.execute("INSERT into markers (database_specific_id, name, size, database_id, timestamp) "+
+                                "VALUES (%s, %s, %s, %s, %s) "+
+                                "RETURNING id", (model.acc, model.desc, model.leng, database_id, postgres_date))
+                    
+                    marker_id = cur.fetchone()[0]
+                    
+                    added_marker_ids.append(marker_id)
+                
+                    marker_lobject = self.conn.lobject(0, 'w', 0, tmpoutfile.name)
+                
+                    cur.execute("UPDATE markers SET hmm = %s WHERE id = %s",
+                            (marker_lobject.oid, marker_id))
+                    
+                    added_oids.append(marker_lobject.oid)
+                
+                    marker_lobject.close()
         
             self.conn.commit()
             
@@ -1065,6 +1085,16 @@ class GenomeDatabase(object):
             (userTypeId,) = result
             return userTypeId
         return None
+    
+    def GetAllMarkerDatabaseInfo(self):
+        cur = self.conn.cursor()
+        cur.execute("SELECT (id, name) FROM databases")
+        result = cur.fetchall()
+        if result:
+            return result
+        else:
+            return None
+        
     
     #
     # Group: Marker Set Management/Query Functions
