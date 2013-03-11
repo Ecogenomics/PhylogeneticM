@@ -182,7 +182,8 @@ def ExportFasta(GenomeDatabase, args):
                 else:
                     print genome
     finally:
-        outfp.close()
+        if args.output_fasta is not None:
+            outfp.close()
 
 
 def DeleteGenome(GenomeDatabase, args):
