@@ -156,14 +156,24 @@ def AddManyFastaGenomes(GenomeDatabase, args):
             print "Added %s as %s\n" % (name, tree_id)
 
 def ExportFasta(GenomeDatabase, args):
-    genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
-    if not genome_id:
-        ErrorReport("Genome not found.\n")
-        return None
+    if args.batchfile is not None:
+        with open(args.batchfile) as fp:
+            for line in fp:
+                args.tree_id.append(line.rstrip())
+    returned_genomes = []
+    for tid in args.tree_id:
+        genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
+        if not genome_id:
+            ErrorReport("Genome not found.\t" + tid)
+        else:
+            returned_genomes.append(GenomeDatabase.ExportGenomicFasta(genome_id))
     if args.output_fasta is None:
-        print GenomeDatabase.ExportGenomicFasta(genome_id)
+        for genome in returned_genomes:
+            print genome
     elif args.output_fasta:
-        GenomeDatabase.ExportGenomicFasta(genome_id, args.output_fasta)
+        with open(args.output_fasta, 'w') as outfp:
+            for genome in returned_genomes:
+                outfp.write(genome)
 
 def DeleteGenome(GenomeDatabase, args):
     tree_ids = args.tree_ids.split(',')
@@ -492,13 +502,16 @@ if __name__ == '__main__':
     
     parser_exportfasta = subparsers.add_parser('ExportFasta',
                                     help='Export a genome to a FASTA file')
-    parser_exportfasta.add_argument('--tree_id', dest = 'tree_id',
+    parser_exportfasta.add_argument('--tree_id', dest = 'tree_id', action='append'
                                     required=True, help='Tree IDs')
     #parser_exportfasta.add_argument('--genome_list_id', dest = 'genome_list_id',
     #                                help='Name of the genome')
     parser_exportfasta.add_argument('--output', dest = 'output_fasta',
                                     help='Output the genome to a FASTA file')
+    parser_exportfasta.add_argument('--batchfile', dest='batchfile', 
+                                    help='A file containing tree ids to extract')
     parser_exportfasta.set_defaults(func=ExportFasta)
+
     
 # --------- Delete FASTA Genome
 
