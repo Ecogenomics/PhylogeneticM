@@ -175,6 +175,7 @@ def ExportFasta(GenomeDatabase, args):
                 genome = GenomeDatabase.ExportGenomicFasta(genome_id)
                 if args.output_fasta is not None:
                     outfp.write(genome)
+                    outfp.write('\n')
                 elif args.batchfile is not None and args.prefix is not None:
                     outfp = open(os.path.join(args.prefix, tid + '.fasta'), 'w')
                     outfp.write(genome)
