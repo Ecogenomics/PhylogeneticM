@@ -156,24 +156,34 @@ def AddManyFastaGenomes(GenomeDatabase, args):
             print "Added %s as %s\n" % (name, tree_id)
 
 def ExportFasta(GenomeDatabase, args):
+    tree_ids = []
+    if args.tree_id is not None:
+        tree_ids.extend(args.tree_id)
     if args.batchfile is not None:
         with open(args.batchfile) as fp:
             for line in fp:
-                args.tree_id.append(line.rstrip())
-    returned_genomes = []
-    for tid in args.tree_id:
-        genome_id = GenomeDatabase.GetGenomeId(args.tree_id)
-        if not genome_id:
-            ErrorReport("Genome not found.\t" + tid)
-        else:
-            returned_genomes.append(GenomeDatabase.ExportGenomicFasta(genome_id))
-    if args.output_fasta is None:
-        for genome in returned_genomes:
-            print genome
-    elif args.output_fasta:
-        with open(args.output_fasta, 'w') as outfp:
-            for genome in returned_genomes:
-                outfp.write(genome)
+                tree_ids.append(line.rstrip())
+    if args.output_fasta is not None:
+        outfp = open(args.output_fasta, 'w')
+
+    try:
+        for tid in tree_ids:
+            genome_id = GenomeDatabase.GetGenomeId(tid)
+            if not genome_id:
+                ErrorReport("Genome not found.\t" + str(tid))
+            else:
+                genome = GenomeDatabase.ExportGenomicFasta(genome_id)
+                if args.output_fasta is not None:
+                    outfp.write(genome)
+                elif args.batchfile is not None and args.prefix is not None:
+                    outfp = open(os.path.join(args.prefix, tid + '.fasta'), 'w')
+                    outfp.write(genome)
+                    outfp.close()
+                else:
+                    print genome
+    finally:
+        outfp.close()
+
 
 def DeleteGenome(GenomeDatabase, args):
     tree_ids = args.tree_ids.split(',')
@@ -502,10 +512,11 @@ if __name__ == '__main__':
     
     parser_exportfasta = subparsers.add_parser('ExportFasta',
                                     help='Export a genome to a FASTA file')
-    parser_exportfasta.add_argument('--tree_id', dest = 'tree_id', action='append'
-                                    required=True, help='Tree IDs')
-    #parser_exportfasta.add_argument('--genome_list_id', dest = 'genome_list_id',
-    #                                help='Name of the genome')
+    parser_exportfasta.add_argument('--tree_id', dest = 'tree_id', action='append',
+                                    help='Tree ID to export. This option can be '
+                                    'specified multiple times')
+    parser_exportfasta.add_argument('--outdir', dest = 'prefix', default='.',
+                                    help='output directory to use when exporting genomes with a batch file')
     parser_exportfasta.add_argument('--output', dest = 'output_fasta',
                                     help='Output the genome to a FASTA file')
     parser_exportfasta.add_argument('--batchfile', dest='batchfile', 
